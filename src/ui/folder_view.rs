@@ -1,4 +1,5 @@
 use std::{
+    cmp::min,
     collections::HashSet,
     ffi::OsStr,
     path::{Path, PathBuf},
@@ -6,10 +7,14 @@ use std::{
 };
 
 use ratatui::{
-    DefaultTerminal, buffer::Buffer, layout::Rect, style::{Color, Style, Styled, Stylize}, widgets::{
+    DefaultTerminal,
+    buffer::Buffer,
+    layout::Rect,
+    style::{Color, Style, Styled, Stylize},
+    widgets::{
         Block, Borders, HighlightSpacing, List, ListItem, ListState, Paragraph, StatefulWidget,
         Widget,
-    }
+    },
 };
 
 use crate::{
@@ -24,6 +29,7 @@ pub struct FolderViewState {
     selection: ListState,
     expanded_pathes: HashSet<PathBuf>,
     items_full_name: Vec<PathBuf>,
+    horizontal_scroll: usize,
 }
 
 static NORMAL_LIST_STYLE: LazyLock<Style> = LazyLock::new(|| Style::default());
@@ -39,6 +45,7 @@ impl FolderViewState {
             selection,
             expanded_pathes: HashSet::new(),
             items_full_name: Vec::new(),
+            horizontal_scroll: 0,
         }
     }
 
@@ -113,10 +120,22 @@ impl FolderViewState {
             None
         }
     }
+
+    pub fn horizontal_scroll(&self) -> usize {
+        self.horizontal_scroll
+    }
+
+    pub fn set_horizontal_scroll(&mut self, scroll: usize) {
+        self.horizontal_scroll = scroll;
+    }
 }
 
 impl EventHandler for FolderViewState {
-    fn handler(&mut self, event: &ControlEvent, _: &mut DefaultTerminal) -> Result<(), crate::DiffTuiError> {
+    fn handler(
+        &mut self,
+        event: &ControlEvent,
+        _: &mut DefaultTerminal,
+    ) -> Result<(), crate::DiffTuiError> {
         match event {
             ControlEvent::NavUp => self.selection.scroll_up_by(1),
             ControlEvent::NavDown => self.selection.scroll_down_by(1),
@@ -153,16 +172,20 @@ impl<'a> StatefulWidget for FolderView<'a> {
                     &mut list_items,
                     0,
                     state.side,
+                    state.horizontal_scroll,
                 );
             }
 
-            if let Some(selected_item) = state.selection.selected().and_then(|idx| list_items.get_mut(idx)) {
+            if let Some(selected_item) = state
+                .selection
+                .selected()
+                .and_then(|idx| list_items.get_mut(idx))
+            {
                 *selected_item = selected_item.clone().on_blue();
             }
-            
+
             StatefulWidget::render(
-                List::new(list_items)
-                    .block(list_border),
+                List::new(list_items).block(list_border),
                 area,
                 buf,
                 &mut state.selection,
@@ -179,7 +202,10 @@ impl<'a> FolderView<'a> {
     const INDENTION: &'static str = "  ";
 
     pub fn new(title: String, expanded_pathes: &'a HashSet<PathBuf>) -> FolderView<'a> {
-        Self { title, expanded_pathes }
+        Self {
+            title,
+            expanded_pathes,
+        }
     }
 
     fn generate_list_item(
@@ -190,6 +216,7 @@ impl<'a> FolderView<'a> {
         list: &mut Vec<ListItem>,
         level: usize,
         side: DiffSide,
+        horizontal_scroll: usize,
     ) {
         let root = match tree.get(root_path) {
             Some(n) => n,
@@ -214,12 +241,14 @@ impl<'a> FolderView<'a> {
             if root.borrow().ent_type().is_dir() {
                 item_str.push('/');
             }
-            let list_item = ListItem::from(item_str).style(match root.borrow().diff_state() {
-                DiffState::Unknown => NORMAL_LIST_STYLE.clone(),
-                DiffState::Orphan(_) => ORPHAN_LIST_STYLE.clone(),
-                DiffState::Different => DIFF_LIST_STYLE.clone(),
-                DiffState::Same => SAME_LIST_STYLE.clone(),
-            });
+            let list_item =
+                ListItem::from(item_str[min(horizontal_scroll, item_str.len())..].to_string())
+                    .style(match root.borrow().diff_state() {
+                        DiffState::Unknown => NORMAL_LIST_STYLE.clone(),
+                        DiffState::Orphan(_) => ORPHAN_LIST_STYLE.clone(),
+                        DiffState::Different => DIFF_LIST_STYLE.clone(),
+                        DiffState::Same => SAME_LIST_STYLE.clone(),
+                    });
 
             list.push(list_item);
         }
@@ -227,7 +256,15 @@ impl<'a> FolderView<'a> {
 
         if self.expanded_pathes.contains(root_path) {
             for entry in root.borrow().children().iter() {
-                self.generate_list_item(tree, items_full_name, entry, list, level + 1, side);
+                self.generate_list_item(
+                    tree,
+                    items_full_name,
+                    entry,
+                    list,
+                    level + 1,
+                    side,
+                    horizontal_scroll,
+                );
             }
         }
     }

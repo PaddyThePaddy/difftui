@@ -40,6 +40,7 @@ pub struct FolderCmpState {
     rhs_state: FolderViewState,
     expanded_pathes: HashSet<PathBuf>,
     focus: FocusState,
+    horizontal_scroll: usize,
 }
 
 impl FolderCmpState {
@@ -67,6 +68,7 @@ impl FolderCmpState {
             expanded_pathes: HashSet::new(),
             focus: FocusState::Synced(ListState::default().with_selected(Some(0))),
             tree: tree.clone(),
+            horizontal_scroll: 0,
         })
     }
 }
@@ -80,8 +82,16 @@ impl EventHandler for FolderCmpState {
         match &mut self.focus {
             FocusState::Synced(list_state) => {
                 match event {
-                    ControlEvent::NavUp => list_state.scroll_up_by(1),
-                    ControlEvent::NavDown => list_state.scroll_down_by(1),
+                    ControlEvent::NavUp => {
+                        list_state.scroll_up_by(1);
+                        *self.lhs_state.selected_mut() = *list_state;
+                        *self.rhs_state.selected_mut() = *list_state;
+                    }
+                    ControlEvent::NavDown => {
+                        list_state.scroll_down_by(1);
+                        *self.lhs_state.selected_mut() = *list_state;
+                        *self.rhs_state.selected_mut() = *list_state;
+                    }
                     ControlEvent::ToggleSelected => {
                         if let Some(selected_p) = self.lhs_state.selected_path() {
                             if self.expanded_pathes.contains(selected_p) {
@@ -110,10 +120,18 @@ impl EventHandler for FolderCmpState {
                             run_ext_tui_app(&mut cmd, terminal)?;
                         }
                     }
+                    ControlEvent::NavLeft => {
+                            self.horizontal_scroll = self.horizontal_scroll.saturating_sub(1);
+                            self.lhs_state.set_horizontal_scroll(self.horizontal_scroll);
+                            self.rhs_state.set_horizontal_scroll(self.horizontal_scroll);
+                    }
+                    ControlEvent::NavRight => {
+                            self.horizontal_scroll = self.horizontal_scroll.saturating_add(1);
+                            self.lhs_state.set_horizontal_scroll(self.horizontal_scroll);
+                            self.rhs_state.set_horizontal_scroll(self.horizontal_scroll);
+                    }
                     _ => {}
                 }
-                *self.lhs_state.selected_mut() = *list_state;
-                *self.rhs_state.selected_mut() = *list_state;
                 Ok(())
             }
             FocusState::FocusOn(diff_side) => match diff_side {
