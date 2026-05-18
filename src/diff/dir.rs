@@ -1,5 +1,5 @@
 use std::{
-    cell::RefCell, clone, collections::HashMap, fs::FileType, os::unix::fs::MetadataExt, path::{Path, PathBuf}
+    cell::RefCell, clone, collections::HashMap, fs::FileType, path::{Path, PathBuf}
 };
 
 use anyhow::Result;
@@ -186,7 +186,7 @@ pub fn cmp_tree(
         let lhs_stat = std::fs::metadata(&lhs_path)?;
         let rhs_stat = std::fs::metadata(&rhs_path)?;
 
-        if lhs_stat.size() != rhs_stat.size() {
+        if lhs_stat.len() != rhs_stat.len() {
             ds = DiffState::Different;
         } else {
             if compare_file(lhs_path, rhs_path)? {
