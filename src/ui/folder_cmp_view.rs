@@ -12,7 +12,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Spacing},
     widgets::{ListState, Paragraph, StatefulWidget, Widget},
 };
-use tracing::error;
+use tracing::{error, trace};
 
 use crate::{
     DiffTuiError,
@@ -83,6 +83,7 @@ impl EventHandler for FolderCmpState {
         event: &ControlEvent,
         terminal: &mut DefaultTerminal,
     ) -> Result<(), DiffTuiError> {
+        trace!("Handling event: {event:?}");
         if let Some(handle) = self.cmp_in_progress.take_if(|h| h.is_finished()) {
             let result = handle.join().map_err(|_| DiffTuiError::ThreadPaniced)??;
             *self.tree.lock().unwrap() = result;
@@ -97,6 +98,16 @@ impl EventHandler for FolderCmpState {
                     }
                     ControlEvent::NavDown => {
                         list_state.scroll_down_by(1);
+                        *self.lhs_state.selected_mut() = *list_state;
+                        *self.rhs_state.selected_mut() = *list_state;
+                    }
+                    ControlEvent::NavTop => {
+                        list_state.select_first();
+                        *self.lhs_state.selected_mut() = *list_state;
+                        *self.rhs_state.selected_mut() = *list_state;
+                    }
+                    ControlEvent::NavBottom => {
+                        list_state.select_last();
                         *self.lhs_state.selected_mut() = *list_state;
                         *self.rhs_state.selected_mut() = *list_state;
                     }

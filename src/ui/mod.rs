@@ -22,6 +22,8 @@ pub enum ControlEvent {
     NavDown,
     NavLeft,
     NavRight,
+    NavTop,
+    NavBottom,
     ExpandSelected,
     CollapseSelected,
     ToggleSelected,
@@ -44,6 +46,11 @@ impl TryFrom<&Event> for ControlEvent {
                     KeyCode::Char('c') => Ok(Self::ExitApp),
                     _ => Err(()),
                 }
+            } else if kp_ev.modifiers == KeyModifiers::SHIFT {
+                match kp_ev.code {
+                    KeyCode::Char('G') => Ok(Self::NavBottom),
+                    _ => {Err(())}
+                }
             } else if kp_ev.modifiers.is_empty() {
                 match kp_ev.code {
                     KeyCode::Char('j') | KeyCode::Down => Ok(Self::NavDown),
@@ -54,6 +61,7 @@ impl TryFrom<&Event> for ControlEvent {
                     KeyCode::Char('c') => Ok(Self::CompareSelected),
                     KeyCode::Char('a') => Ok(Self::CompareAll),
                     KeyCode::Char('o') => Ok(Self::LauchExtCompare),
+                    KeyCode::Char('g') => Ok(Self::NavTop),
                     KeyCode::Enter => Ok(Self::ToggleSelected),
                     _ => Err(()),
                 }
