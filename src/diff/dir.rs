@@ -16,7 +16,7 @@ const CHANNEL_CAPACITY: usize = 100;
 pub type DirDiffTree = HashMap<PathBuf, RefCell<DirDiff>>;
 
 /// A single node in the directory diff tree.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DirDiff {
     /// Relative path of this entry from the comparison root.
     path: PathBuf,

@@ -2,6 +2,7 @@ use std::{
     collections::HashSet,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
+    thread::JoinHandle,
 };
 
 use anyhow::Result;
@@ -11,6 +12,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Spacing},
     widgets::{ListState, StatefulWidget},
 };
+use tracing::error;
 
 use crate::{
     DiffTuiError,
@@ -31,7 +33,7 @@ enum FocusState {
     FocusOn(DiffSide),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct FolderCmpState {
     lhs_path: PathBuf,
     rhs_path: PathBuf,
@@ -41,6 +43,7 @@ pub struct FolderCmpState {
     expanded_pathes: HashSet<PathBuf>,
     focus: FocusState,
     horizontal_scroll: usize,
+    cmp_in_progress: Option<JoinHandle<Result<DirDiffTree, DiffTuiError>>>,
 }
 
 impl FolderCmpState {
@@ -69,6 +72,7 @@ impl FolderCmpState {
             focus: FocusState::Synced(ListState::default().with_selected(Some(0))),
             tree: tree.clone(),
             horizontal_scroll: 0,
+            cmp_in_progress: None,
         })
     }
 }
@@ -79,6 +83,10 @@ impl EventHandler for FolderCmpState {
         event: &ControlEvent,
         terminal: &mut DefaultTerminal,
     ) -> Result<(), DiffTuiError> {
+        if let Some(handle) = self.cmp_in_progress.take_if(|h| h.is_finished()){
+            let result = handle.join().map_err(|_| DiffTuiError::ThreadPaniced)??;
+            *self.tree.lock().unwrap() = result;
+        }
         match &mut self.focus {
             FocusState::Synced(list_state) => {
                 match event {
@@ -103,13 +111,34 @@ impl EventHandler for FolderCmpState {
                     }
                     ControlEvent::CompareSelected => {
                         if let Some(selected_p) = self.lhs_state.selected_path() {
-                            let tree = self.tree.lock().unwrap();
-                            cmp_tree(&tree, selected_p, &self.lhs_path, &self.rhs_path)?;
+                            if self.cmp_in_progress.is_some() {
+                                error!("There is a comparison in progress");
+                            } else {
+                                let tree = self.tree.lock().unwrap();
+                                let copied_tree: DirDiffTree = tree.clone();
+                                let lhs_path = self.lhs_path.clone();
+                                let rhs_path = self.rhs_path.clone();
+                                let root = selected_p.clone();
+                                self.cmp_in_progress = Some(std::thread::spawn(move || {
+                                    cmp_tree(&copied_tree, &root, &lhs_path, &rhs_path)?;
+                                    return Ok::<DirDiffTree, DiffTuiError>(copied_tree);
+                                }));
+                            }
                         }
                     }
                     ControlEvent::CompareAll => {
-                        let tree = self.tree.lock().unwrap();
-                        cmp_tree(&tree, Path::new(""), &self.lhs_path, &self.rhs_path)?;
+                            if self.cmp_in_progress.is_some() {
+                                error!("There is a comparison in progress");
+                            } else {
+                                let tree = self.tree.lock().unwrap();
+                                let copied_tree: DirDiffTree = tree.clone();
+                                let lhs_path = self.lhs_path.clone();
+                                let rhs_path = self.rhs_path.clone();
+                                self.cmp_in_progress = Some(std::thread::spawn(move || {
+                                    cmp_tree(&copied_tree, Path::new(""), &lhs_path, &rhs_path)?;
+                                    return Ok::<DirDiffTree, DiffTuiError>(copied_tree);
+                                }));
+                            }
                     }
                     ControlEvent::LauchExtCompare => {
                         if let Some(selected_path) = self.lhs_state.selected_path() {

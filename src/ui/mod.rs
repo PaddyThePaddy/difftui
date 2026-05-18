@@ -32,6 +32,7 @@ pub enum ControlEvent {
     ExitApp,
     CompareSelected,
     CompareAll,
+    NoOp,
 }
 
 impl TryFrom<&Event> for ControlEvent {
@@ -95,6 +96,8 @@ impl App {
                     }
                     self.folder_cmp_state.handler(&event, term).unwrap();
                 }
+            } else {
+                self.folder_cmp_state.handler(&ControlEvent::NoOp, term).unwrap();
             }
         }
     }
