@@ -1,5 +1,7 @@
 use std::{io::Read as _, path::Path};
 
+use tracing::trace;
+
 pub mod dir;
 pub mod file;
 
@@ -48,6 +50,7 @@ const CMP_BUFFER_SIZE: usize = 4096;
 fn compare_file<LP: AsRef<Path>, RP: AsRef<Path>>(lhs: LP, rhs: RP) -> std::io::Result<bool> {
     let lhs = lhs.as_ref();
     let rhs = rhs.as_ref();
+    trace!("Comparing {} <=> {}", lhs.display(), rhs.display());
 
     let mut lhs_f = std::fs::File::open(lhs)?;
     let mut rhs_f = std::fs::File::open(rhs)?;

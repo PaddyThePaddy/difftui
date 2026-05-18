@@ -1,5 +1,9 @@
 use std::{
-    cell::RefCell, clone, collections::HashMap, fs::FileType, path::{Path, PathBuf}
+    cell::RefCell,
+    clone,
+    collections::HashMap,
+    fs::FileType,
+    path::{Path, PathBuf},
 };
 
 use anyhow::Result;
@@ -180,21 +184,57 @@ pub fn cmp_tree(
                 ds = DiffState::Different;
             }
         }
-    } else {
+    } else if root.borrow().ent_type.is_file() {
         let lhs_path = lhs.join(p);
         let rhs_path = rhs.join(p);
-        let lhs_stat = std::fs::metadata(&lhs_path)?;
-        let rhs_stat = std::fs::metadata(&rhs_path)?;
+        let lhs_stat = std::fs::metadata(&lhs_path)
+            .inspect_err(|e| error!("Get metadata for {} failed: {e}", lhs_path.display()))?;
+        let rhs_stat = std::fs::metadata(&rhs_path)
+            .inspect_err(|e| error!("Get metadata for {} failed: {e}", rhs_path.display()))?;
 
         if lhs_stat.len() != rhs_stat.len() {
             ds = DiffState::Different;
         } else {
-            if compare_file(lhs_path, rhs_path)? {
+            if compare_file(lhs_path, rhs_path)
+                .inspect_err(|e| error!("Compare file error: {e}"))?
+            {
                 ds = DiffState::Same;
             } else {
                 ds = DiffState::Different;
             }
         }
+    } else if root.borrow().ent_type.is_symlink() {
+        let lhs_path = lhs.join(p);
+        let rhs_path = rhs.join(p);
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let lhs_link = std::fs::symlink_metadata(&lhs_path)?;
+            let rhs_link = std::fs::symlink_metadata(&rhs_path)?;
+            use std::os::unix::fs::MetadataExt;
+
+            if lhs_link.dev() == rhs_link.dev() && lhs_link.ino() == rhs_link.ino() {
+                ds = DiffState::Same;
+            } else {
+                ds = DiffState::Different;
+            }
+        }
+        #[cfg(target_os = "windows")]
+        {
+            error!(
+                "Can't compare symlink in windows: {} <=> {}",
+                lhs_path.display(),
+                rhs_path.display()
+            );
+        }
+    } else {
+        let lhs_path = lhs.join(p);
+        let rhs_path = rhs.join(p);
+        unreachable!(
+            "Unhandled type: {} <=> {}",
+            lhs_path.display(),
+            rhs_path.display()
+        )
     }
 
     root.borrow_mut().diff_state = ds;
