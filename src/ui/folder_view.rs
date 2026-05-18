@@ -11,6 +11,7 @@ use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Color, Style, Styled, Stylize},
+    symbols::merge::MergeStrategy,
     widgets::{
         Block, Borders, HighlightSpacing, List, ListItem, ListState, Paragraph, StatefulWidget,
         Widget,
@@ -159,7 +160,8 @@ impl<'a> StatefulWidget for FolderView<'a> {
         state.items_full_name.clear();
         let list_border = Block::new()
             .title(self.title.as_str())
-            .borders(Borders::all());
+            .borders(Borders::all())
+            .merge_borders(MergeStrategy::Exact);
 
         let tree = state.tree.lock().unwrap();
         if let Some(root) = tree.get(Path::new("")) {

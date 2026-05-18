@@ -8,7 +8,7 @@ use anyhow::Result;
 use ratatui::{
     DefaultTerminal,
     crossterm::event::{Event, KeyCode},
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Spacing},
     widgets::{ListState, StatefulWidget},
 };
 
@@ -121,14 +121,14 @@ impl EventHandler for FolderCmpState {
                         }
                     }
                     ControlEvent::NavLeft => {
-                            self.horizontal_scroll = self.horizontal_scroll.saturating_sub(1);
-                            self.lhs_state.set_horizontal_scroll(self.horizontal_scroll);
-                            self.rhs_state.set_horizontal_scroll(self.horizontal_scroll);
+                        self.horizontal_scroll = self.horizontal_scroll.saturating_sub(1);
+                        self.lhs_state.set_horizontal_scroll(self.horizontal_scroll);
+                        self.rhs_state.set_horizontal_scroll(self.horizontal_scroll);
                     }
                     ControlEvent::NavRight => {
-                            self.horizontal_scroll = self.horizontal_scroll.saturating_add(1);
-                            self.lhs_state.set_horizontal_scroll(self.horizontal_scroll);
-                            self.rhs_state.set_horizontal_scroll(self.horizontal_scroll);
+                        self.horizontal_scroll = self.horizontal_scroll.saturating_add(1);
+                        self.lhs_state.set_horizontal_scroll(self.horizontal_scroll);
+                        self.rhs_state.set_horizontal_scroll(self.horizontal_scroll);
                     }
                     _ => {}
                 }
@@ -157,7 +157,8 @@ impl StatefulWidget for FolderCmpView {
         let layout = Layout::new(
             Direction::Horizontal,
             [Constraint::Percentage(50), Constraint::Percentage(50)],
-        );
+        )
+        .spacing(Spacing::Overlap(1));
         let [lhs_area, rhs_area] = area.layout(&layout);
         FolderView::new(
             state.lhs_path.to_string_lossy().to_string(),
