@@ -10,7 +10,7 @@ use ratatui::{
     DefaultTerminal,
     crossterm::event::{Event, KeyCode},
     layout::{Constraint, Direction, Layout, Spacing},
-    widgets::{ListState, StatefulWidget},
+    widgets::{ListState, Paragraph, StatefulWidget, Widget},
 };
 use tracing::error;
 
@@ -83,7 +83,7 @@ impl EventHandler for FolderCmpState {
         event: &ControlEvent,
         terminal: &mut DefaultTerminal,
     ) -> Result<(), DiffTuiError> {
-        if let Some(handle) = self.cmp_in_progress.take_if(|h| h.is_finished()){
+        if let Some(handle) = self.cmp_in_progress.take_if(|h| h.is_finished()) {
             let result = handle.join().map_err(|_| DiffTuiError::ThreadPaniced)??;
             *self.tree.lock().unwrap() = result;
         }
@@ -127,18 +127,18 @@ impl EventHandler for FolderCmpState {
                         }
                     }
                     ControlEvent::CompareAll => {
-                            if self.cmp_in_progress.is_some() {
-                                error!("There is a comparison in progress");
-                            } else {
-                                let tree = self.tree.lock().unwrap();
-                                let copied_tree: DirDiffTree = tree.clone();
-                                let lhs_path = self.lhs_path.clone();
-                                let rhs_path = self.rhs_path.clone();
-                                self.cmp_in_progress = Some(std::thread::spawn(move || {
-                                    cmp_tree(&copied_tree, Path::new(""), &lhs_path, &rhs_path)?;
-                                    return Ok::<DirDiffTree, DiffTuiError>(copied_tree);
-                                }));
-                            }
+                        if self.cmp_in_progress.is_some() {
+                            error!("There is a comparison in progress");
+                        } else {
+                            let tree = self.tree.lock().unwrap();
+                            let copied_tree: DirDiffTree = tree.clone();
+                            let lhs_path = self.lhs_path.clone();
+                            let rhs_path = self.rhs_path.clone();
+                            self.cmp_in_progress = Some(std::thread::spawn(move || {
+                                cmp_tree(&copied_tree, Path::new(""), &lhs_path, &rhs_path)?;
+                                return Ok::<DirDiffTree, DiffTuiError>(copied_tree);
+                            }));
+                        }
                     }
                     ControlEvent::LauchExtCompare => {
                         if let Some(selected_path) = self.lhs_state.selected_path() {
@@ -183,12 +183,24 @@ impl StatefulWidget for FolderCmpView {
         buf: &mut ratatui::prelude::Buffer,
         state: &mut Self::State,
     ) {
-        let layout = Layout::new(
+        let vertical_layout = Layout::new(
+            Direction::Vertical,
+            [
+                Constraint::Fill(1),
+                Constraint::Max(if state.cmp_in_progress.is_some() {
+                    1
+                } else {
+                    0
+                }),
+            ],
+        );
+        let horizontal_layout = Layout::new(
             Direction::Horizontal,
             [Constraint::Percentage(50), Constraint::Percentage(50)],
         )
         .spacing(Spacing::Overlap(1));
-        let [lhs_area, rhs_area] = area.layout(&layout);
+        let [main_area, status_line] = area.layout(&vertical_layout);
+        let [lhs_area, rhs_area] = main_area.layout(&horizontal_layout);
         FolderView::new(
             state.lhs_path.to_string_lossy().to_string(),
             &state.expanded_pathes,
@@ -199,6 +211,9 @@ impl StatefulWidget for FolderCmpView {
             &state.expanded_pathes,
         )
         .render(rhs_area, buf, &mut state.rhs_state);
+        if state.cmp_in_progress.is_some() {
+            Paragraph::new("Comparing...").render(status_line, buf);
+        }
 
         if let FocusState::Synced(list_state) = &mut state.focus {
             *list_state = state.lhs_state.selected();
