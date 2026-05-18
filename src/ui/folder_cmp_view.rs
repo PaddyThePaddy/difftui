@@ -170,5 +170,9 @@ impl StatefulWidget for FolderCmpView {
             &state.expanded_pathes,
         )
         .render(rhs_area, buf, &mut state.rhs_state);
+
+        if let FocusState::Synced(list_state) = &mut state.focus {
+            *list_state = state.lhs_state.selected();
+        }
     }
 }
