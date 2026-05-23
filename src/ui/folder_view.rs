@@ -272,7 +272,7 @@ mod tests {
 
     fn make_terminal() -> crate::ui::TuiTerminal {
         Terminal::with_options(
-            ratatui::backend::CrosstermBackend::new(std::io::stderr()),
+            ratatui::backend::CrosstermBackend::new(std::io::stdout()),
             TerminalOptions { viewport: Viewport::Fixed(Rect::new(0, 0, 80, 24)) },
         )
         .unwrap()
