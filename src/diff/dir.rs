@@ -1,13 +1,12 @@
 use std::{
-    cell::RefCell,
-    clone,
     collections::HashMap,
-    fs::FileType,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
 };
 
 use anyhow::Result;
 use crossbeam::channel::{Sender, bounded};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator as _};
 use tracing::{error, trace};
 
 use crate::{
@@ -16,35 +15,248 @@ use crate::{
 };
 
 const CHANNEL_CAPACITY: usize = 100;
-/// Maps every relative path seen during a directory walk to its diff node.
-pub type DirDiffTree = HashMap<PathBuf, RefCell<DirDiff>>;
+
+#[derive(Debug, Clone)]
+pub struct DirDiffTree {
+    lhs: PathBuf,
+    rhs: PathBuf,
+    fs_tree: HashMap<PathBuf, TreeNode>,
+    diff_map: Arc<Mutex<HashMap<PathBuf, DiffState>>>,
+}
+
+impl DirDiffTree {
+    pub fn fs_tree(&self) -> &HashMap<PathBuf, TreeNode> {
+        &self.fs_tree
+    }
+    pub fn diff_map(&self) -> Arc<Mutex<HashMap<PathBuf, DiffState>>> {
+        self.diff_map.clone()
+    }
+
+    pub fn new_empty() -> Self {
+        Self{
+            lhs: PathBuf::new(),
+            rhs: PathBuf::new(),
+            fs_tree: HashMap::new(),
+            diff_map: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    pub fn new(lhs: impl Into<PathBuf>, rhs: impl Into<PathBuf>) -> Result<Self, DiffTuiError> {
+        let lhs = lhs.into();
+        let rhs = rhs.into();
+        let (tx, rx) = bounded(CHANNEL_CAPACITY);
+        let mut tree: HashMap<PathBuf, TreeNode> = HashMap::new();
+        let mut diff_map: HashMap<PathBuf, DiffState> = HashMap::new();
+
+        trace!("Dispatching tree walkers");
+        let lhs_handle = {
+            let tx = tx.clone();
+            let cwd = lhs.clone();
+            std::thread::spawn(move || {
+                walk_tree(cwd, tx, DiffSide::Left);
+            })
+        };
+
+        let rhs_handle = {
+            let cwd = rhs.clone();
+            std::thread::spawn(move || {
+                walk_tree(cwd, tx, DiffSide::Right);
+            })
+        };
+        trace!("Tree walkers started");
+
+        trace!("Recving tree nodes");
+        while let Ok((p, meta, side)) = rx.recv() {
+            trace!("Got {}", p.display());
+            if let Some(state) = diff_map.get_mut(&p) {
+                if tree.get(&p).is_some_and(|n|n.metadata.file_type() != meta.file_type()) {
+                    *state = DiffState::Different;
+                }
+                *state = DiffState::Unknown;
+            } else {
+                diff_map.insert(p.clone(), DiffState::Orphan(side));
+            }
+
+            if let Some(parent) = p.parent() {
+                if let Some(parent_node) = tree.get_mut(parent) {
+                    if meta.is_dir() && !parent_node.children.contains(&p){
+                        parent_node.children.push(p.clone());
+                    } else if !meta.is_dir() && !parent_node.children_non_dir.contains(&p){
+                        parent_node.children_non_dir.push(p.clone());
+                    }
+                } else {
+                    let mut children = vec![];
+                    let mut children_non_dir = vec![];
+
+                    if meta.is_dir() {
+                        children.push(p.clone());
+                    } else {
+                        children_non_dir.push(p.clone());
+                    }
+
+                    tree.insert(
+                        parent.to_path_buf(),
+                        TreeNode {
+                            metadata: meta.clone(),
+                            children,
+                            children_non_dir,
+                        },
+                    );
+                }
+            }
+
+            if !tree.contains_key(&p) {
+                tree.insert(
+                    p,
+                    TreeNode {
+                        metadata: meta,
+                        children: vec![],
+                        children_non_dir: vec![],
+                    },
+                );
+            }
+        }
+        trace!("All tree nodes enumerated");
+
+        if let Err(e) = lhs_handle.join() {
+            error!("Lhs walker panic: {e:?}");
+        }
+        if let Err(e) = rhs_handle.join() {
+            error!("Rhs walker panic: {e:?}");
+        }
+        trace!("Walkers joined");
+
+        for node in tree.values_mut() {
+            node.children.extend(node.children_non_dir.iter().cloned());
+            node.children_non_dir.clear();
+        }
+        trace!("DiffTree built");
+
+        Ok(Self {
+            lhs,
+            rhs,
+            fs_tree: tree,
+            diff_map: Arc::new(Mutex::new(diff_map)),
+        })
+    }
+
+    fn cmp_file(&self, p: &Path) -> Result<DiffState, DiffTuiError> {
+        let ds = compare_file(self.lhs.join(&p), self.rhs.join(&p))?;
+        self.diff_map
+            .lock()
+            .expect("Lock diff_map failed")
+            .insert(p.to_path_buf(), ds);
+        Ok(ds)
+    }
+
+    fn cmp_symlink(&self, p: &Path) -> Result<DiffState, DiffTuiError> {
+        let lhs_path = self.lhs.join(p);
+        let rhs_path = self.rhs.join(p);
+        let ds: DiffState;
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let lhs_link = std::fs::symlink_metadata(&lhs_path)?;
+            let rhs_link = std::fs::symlink_metadata(&rhs_path)?;
+            use std::os::unix::fs::MetadataExt;
+
+            ds = if lhs_link.dev() == rhs_link.dev() && lhs_link.ino() == rhs_link.ino() {
+                DiffState::Same
+            } else {
+                DiffState::Different
+            };
+            self.diff_map
+                .lock()
+                .expect("Lock diff_map failed")
+                .insert(p.to_path_buf(), ds);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            error!(
+                "Can't compare symlink in windows: {} <=> {}",
+                lhs_path.display(),
+                rhs_path.display()
+            );
+        }
+        Ok(ds)
+    }
+
+    fn cmp_tree(&self, p: &Path, node: &TreeNode) -> Result<DiffState, DiffTuiError> {
+        let child_ds = node
+            .children
+            .par_iter()
+            .map(|p| self.cmp_node(p))
+            .collect::<Result<Vec<DiffState>, _>>()?;
+        let ds = if child_ds.iter().all(|ds| *ds == DiffState::Same) {
+            DiffState::Same
+        } else {
+            DiffState::Different
+        };
+        self.diff_map
+            .lock()
+            .expect("Lock diff_map failed")
+            .insert(p.to_path_buf(), ds);
+        Ok(ds)
+    }
+
+    pub fn cmp_node(&self, root: &Path) -> Result<DiffState, DiffTuiError> {
+        let node = self.fs_tree().get(root).ok_or(DiffTuiError::NodeNotFound)?;
+        let ds: DiffState;
+
+        if !self.lhs.join(root).try_exists()? {
+            return Ok(DiffState::Orphan(DiffSide::Right));
+        } else if !self.rhs.join(root).try_exists()? {
+            return Ok(DiffState::Orphan(DiffSide::Left));
+        }
+
+        if node.metadata.is_file() {
+            ds = self.cmp_file(root)?;
+        } else if node.metadata.is_dir() {
+            ds = self.cmp_tree(root, node)?;
+        } else if node.metadata.is_symlink() {
+            ds = self.cmp_symlink(root)?;
+        } else {
+            let lhs_path = self.lhs.join(root);
+            let rhs_path = self.rhs.join(root);
+            unreachable!(
+                "Unhandled type: {} <=> {}",
+                lhs_path.display(),
+                rhs_path.display()
+            )
+        }
+
+        return Ok(ds);
+    }
+
+    pub fn get_diff_state(&self, p: &Path) -> DiffState {
+        self.diff_map
+            .lock()
+            .expect("Locking diff_map failed")
+            .get(p)
+            .map(|ds| *ds)
+            .unwrap_or(DiffState::Unknown)
+    }
+
+    pub fn get_fs_node(&self, p: &Path) -> Option<&TreeNode> {
+        self.fs_tree().get(p)
+    }
+}
 
 /// A single node in the directory diff tree.
 #[derive(Debug, Clone)]
-pub struct DirDiff {
-    /// Relative path of this entry from the comparison root.
-    path: PathBuf,
-    /// Whether the entry is a file or directory.
-    ent_type: std::fs::FileType,
+pub struct TreeNode {
+    metadata: std::fs::Metadata,
     /// Relative paths of direct children (populated for directories).
     children: Vec<PathBuf>,
     children_non_dir: Vec<PathBuf>,
-    /// Current comparison result for this entry.
-    diff_state: DiffState,
 }
 
-impl DirDiff {
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-    pub fn ent_type(&self) -> &std::fs::FileType {
-        &self.ent_type
-    }
+impl TreeNode {
     pub fn children(&self) -> &[PathBuf] {
         self.children.as_slice()
     }
-    pub fn diff_state(&self) -> DiffState {
-        self.diff_state
+    pub fn metadata(&self) -> &std::fs::Metadata {
+        &self.metadata
     }
 }
 
@@ -53,7 +265,8 @@ impl DirDiff {
 ///
 /// Errors from individual entries are logged and skipped; channel send errors
 /// are also logged (they indicate the receiver has been dropped early).
-fn walk_tree(cwd: PathBuf, sender: Sender<(PathBuf, Option<FileType>, DiffSide)>, side: DiffSide) {
+fn walk_tree(cwd: PathBuf, sender: Sender<(PathBuf, std::fs::Metadata, DiffSide)>, side: DiffSide) {
+    trace!("Tree walker started");
     let walker = ignore::WalkBuilder::new(cwd.as_path()).build();
 
     for entry in walker {
@@ -68,7 +281,8 @@ fn walk_tree(cwd: PathBuf, sender: Sender<(PathBuf, Option<FileType>, DiffSide)>
                         .strip_prefix(&cwd)
                         .map(|p| p.to_path_buf())
                         .unwrap_or(entry.path().to_path_buf()),
-                    entry.file_type(),
+                    // TODO: error handling
+                    entry.metadata().unwrap(),
                     side,
                 )) {
                     error!("Send while channel disconnected");
@@ -76,6 +290,7 @@ fn walk_tree(cwd: PathBuf, sender: Sender<(PathBuf, Option<FileType>, DiffSide)>
             }
         }
     }
+    trace!("Tree walker completed");
 }
 
 /// Builds a [`DirDiffTree`] by walking both `lhs` and `rhs` in parallel.
@@ -86,69 +301,7 @@ fn walk_tree(cwd: PathBuf, sender: Sender<(PathBuf, Option<FileType>, DiffSide)>
 /// been content-compared. Call [`cmp_tree`] afterwards to resolve all
 /// `Unknown` entries.
 pub fn build_diff_tree(lhs: &Path, rhs: &Path) -> Result<DirDiffTree, DiffTuiError> {
-    let mut tree: DirDiffTree = HashMap::new();
-    let (send, recv) = bounded(CHANNEL_CAPACITY);
-
-    let lhs_handle = std::thread::spawn({
-        let send = send.clone();
-        let cwd = lhs.to_path_buf();
-        move || {
-            walk_tree(cwd, send, DiffSide::Left);
-        }
-    });
-    let rhs_handle = std::thread::spawn({
-        let cwd = rhs.to_path_buf();
-        move || {
-            walk_tree(cwd, send, DiffSide::Right);
-        }
-    });
-
-    while let Ok((p, t, side)) = recv.recv() {
-        trace!("{}, {t:?}, {side}", p.display());
-
-        if let Some(parent) = p.parent() {
-            match tree.get_mut(parent) {
-                None => error!("Parent {} not found", parent.display()),
-                Some(entry) => {
-                    if t.is_some_and(|t| t.is_dir()) {
-                        if !entry.borrow().children.contains(&p) {
-                            entry.borrow_mut().children.push(p.clone())
-                        }
-                    } else {
-                        if !entry.borrow().children_non_dir.contains(&p) {
-                            entry.borrow_mut().children_non_dir.push(p.clone());
-                        }
-                    }
-                }
-            }
-        }
-        if let Some(entry) = tree.get_mut(&p) {
-            entry.borrow_mut().diff_state = DiffState::Unknown;
-        } else {
-            tree.insert(
-                p.clone(),
-                RefCell::new(DirDiff {
-                    path: p.clone(),
-                    children_non_dir: Vec::new(),
-                    children: Vec::new(),
-                    diff_state: DiffState::Orphan(side),
-                    ent_type: t.unwrap(),
-                }),
-            );
-        }
-    }
-
-    rhs_handle.join().map_err(|_| DiffTuiError::ThreadPaniced)?;
-    lhs_handle.join().map_err(|_| DiffTuiError::ThreadPaniced)?;
-
-    for (_, node) in tree.iter_mut() {
-        let mut node = node.borrow_mut();
-        let non_dir_items = node.children_non_dir.iter().cloned().collect::<Vec<_>>();
-        node.children.extend(non_dir_items);
-        node.children_non_dir.clear();
-    }
-
-    Ok(tree)
+    unimplemented!()
 }
 
 /// Recursively resolves the [`DiffState`] of every node reachable from `p`.
@@ -170,76 +323,7 @@ pub fn cmp_tree(
     lhs: &Path,
     rhs: &Path,
 ) -> Result<DiffState, DiffTuiError> {
-    let root = tree.get(p).ok_or(DiffTuiError::NodeNotFound)?;
-    let mut ds = root.borrow().diff_state;
-    if let DiffState::Orphan(_) = ds {
-        return Ok(ds);
-    }
-
-    if root.borrow().ent_type.is_dir() {
-        ds = DiffState::Same;
-        for child in root.borrow().children.iter() {
-            let child_ds = cmp_tree(tree, child, lhs, rhs)?;
-            if child_ds != DiffState::Same {
-                ds = DiffState::Different;
-            }
-        }
-    } else if root.borrow().ent_type.is_file() {
-        let lhs_path = lhs.join(p);
-        let rhs_path = rhs.join(p);
-        let lhs_stat = std::fs::metadata(&lhs_path)
-            .inspect_err(|e| error!("Get metadata for {} failed: {e}", lhs_path.display()))?;
-        let rhs_stat = std::fs::metadata(&rhs_path)
-            .inspect_err(|e| error!("Get metadata for {} failed: {e}", rhs_path.display()))?;
-
-        if lhs_stat.len() != rhs_stat.len() {
-            ds = DiffState::Different;
-        } else {
-            if compare_file(lhs_path, rhs_path)
-                .inspect_err(|e| error!("Compare file error: {e}"))?
-            {
-                ds = DiffState::Same;
-            } else {
-                ds = DiffState::Different;
-            }
-        }
-    } else if root.borrow().ent_type.is_symlink() {
-        let lhs_path = lhs.join(p);
-        let rhs_path = rhs.join(p);
-
-        #[cfg(not(target_os = "windows"))]
-        {
-            let lhs_link = std::fs::symlink_metadata(&lhs_path)?;
-            let rhs_link = std::fs::symlink_metadata(&rhs_path)?;
-            use std::os::unix::fs::MetadataExt;
-
-            if lhs_link.dev() == rhs_link.dev() && lhs_link.ino() == rhs_link.ino() {
-                ds = DiffState::Same;
-            } else {
-                ds = DiffState::Different;
-            }
-        }
-        #[cfg(target_os = "windows")]
-        {
-            error!(
-                "Can't compare symlink in windows: {} <=> {}",
-                lhs_path.display(),
-                rhs_path.display()
-            );
-        }
-    } else {
-        let lhs_path = lhs.join(p);
-        let rhs_path = rhs.join(p);
-        unreachable!(
-            "Unhandled type: {} <=> {}",
-            lhs_path.display(),
-            rhs_path.display()
-        )
-    }
-
-    root.borrow_mut().diff_state = ds;
-
-    Ok(ds)
+    unimplemented!()
 }
 
 #[cfg(test)]
@@ -252,15 +336,16 @@ mod test {
     /// `scenario` must name a sub-directory of `test/folder_cmp/` that
     /// contains `lhs/` and `rhs/` sub-directories.
     fn run_scenario(scenario: &str) -> HashMap<PathBuf, DiffState> {
-        let base = PathBuf::from(format!("test/folder_cmp/{scenario}"));
-        let lhs = base.join("lhs");
-        let rhs = base.join("rhs");
-        let tree = build_diff_tree(&lhs, &rhs).unwrap();
-        cmp_tree(&tree, Path::new(""), &lhs, &rhs).unwrap();
-        trace!("tree = {tree:#?}");
-        tree.iter()
-            .map(|(k, v)| (k.clone(), v.borrow().diff_state))
-            .collect()
+        // let base = PathBuf::from(format!("test/folder_cmp/{scenario}"));
+        // let lhs = base.join("lhs");
+        // let rhs = base.join("rhs");
+        // let tree = build_diff_tree(&lhs, &rhs).unwrap();
+        // cmp_tree(&tree, Path::new(""), &lhs, &rhs).unwrap();
+        // trace!("tree = {tree:#?}");
+        // tree.iter()
+        //     .map(|(k, v)| (k.clone(), v.borrow().diff_state))
+        //     .collect()
+        unimplemented!()
     }
 
     // same/ — both sides have identical files (all empty).

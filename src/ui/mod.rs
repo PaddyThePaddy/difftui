@@ -1,26 +1,17 @@
 mod folder_cmp_view;
 mod folder_view;
+mod loading_msg;
 mod tui;
 
-use std::{
-    io::stdout,
-    iter::Once,
-    ops::{Deref, DerefMut as _},
-    path::{Path, PathBuf},
-    sync::OnceLock,
-    time::Duration,
-};
+use std::{io::stdout, path::PathBuf, time::Duration};
 
 use crate::{
     DiffTuiError,
-    ui::{
-        folder_cmp_view::{FolderCmpState, FolderCmpView},
-        tui::Tui,
-    },
+    ui::folder_cmp_view::{FolderCmpState, FolderCmpView},
 };
 use crossterm::event::KeyEvent;
 use ratatui::{
-    DefaultTerminal, Frame,
+    Frame,
     crossterm::{
         self, ExecutableCommand as _,
         event::{Event, KeyCode, KeyModifiers},
@@ -28,11 +19,11 @@ use ratatui::{
     },
     widgets::Widget,
 };
-use tracing::{error, info, trace};
+use tracing::error;
 
 pub type TuiTerminal = ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stderr>>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     NavUp,
     NavDown,
@@ -47,10 +38,10 @@ pub enum Action {
     UncoupleFolders,
     RecoupleFolders,
     OpenSelectedInNewTab,
-    ExitApp,
+    ExitApp(Option<String>),
     CompareSelected,
     CompareAll,
-    NoOp,
+    Tick,
 }
 
 impl TryFrom<&Event> for Action {
@@ -69,7 +60,7 @@ impl TryFrom<KeyEvent> for Action {
     fn try_from(value: KeyEvent) -> Result<Self, Self::Error> {
         if value.modifiers == KeyModifiers::CONTROL {
             match value.code {
-                KeyCode::Char('c') => Ok(Self::ExitApp),
+                KeyCode::Char('c') => Ok(Self::ExitApp(None)),
                 _ => Err(()),
             }
         } else if value.modifiers == KeyModifiers::SHIFT {
@@ -83,7 +74,7 @@ impl TryFrom<KeyEvent> for Action {
                 KeyCode::Char('k') | KeyCode::Up => Ok(Self::NavUp),
                 KeyCode::Char('h') | KeyCode::Left => Ok(Self::NavLeft),
                 KeyCode::Char('l') | KeyCode::Right => Ok(Self::NavRight),
-                KeyCode::Char('q') => Ok(Self::ExitApp),
+                KeyCode::Char('q') => Ok(Self::ExitApp(None)),
                 KeyCode::Char('c') => Ok(Self::CompareSelected),
                 KeyCode::Char('a') => Ok(Self::CompareAll),
                 KeyCode::Char('o') => Ok(Self::LauchExtCompare),
@@ -102,7 +93,7 @@ pub trait EventHandler {
         &mut self,
         event: &Action,
         terminal: &mut TuiTerminal,
-    ) -> Result<(), DiffTuiError>;
+    ) -> Result<Option<Action>, DiffTuiError>;
 }
 
 pub trait WidgetWithEventHandler: Widget + EventHandler {}
@@ -127,15 +118,13 @@ impl App {
             if crossterm::event::poll(Duration::new(0, 100))? {
                 let event = crossterm::event::read()?;
                 if let Ok(event) = Action::try_from(&event) {
-                    if event == Action::ExitApp {
+                    if event == Action::ExitApp(None) {
                         break Ok(());
                     }
                     self.folder_cmp_state.handler(&event, term).unwrap();
                 }
             } else {
-                self.folder_cmp_state
-                    .handler(&Action::NoOp, term)
-                    .unwrap();
+                self.folder_cmp_state.handler(&Action::Tick, term).unwrap();
             }
         }
     }
@@ -153,7 +142,7 @@ impl App {
         if let tui::Event::Key(k_evt) = evt {
             Action::try_from(k_evt).ok()
         } else if let tui::Event::Tick = evt {
-            Some(Action::NoOp)
+            Some(Action::Tick)
         } else {
             None
         }
@@ -164,8 +153,7 @@ impl App {
         act: Action,
         terminal: &mut TuiTerminal,
     ) -> Result<Option<Action>, DiffTuiError> {
-        self.folder_cmp_state.handler(&act, terminal)?;
-        Ok(None)
+        self.folder_cmp_state.handler(&act, terminal)
     }
 
     async fn run(&mut self) -> Result<(), DiffTuiError> {
@@ -173,7 +161,7 @@ impl App {
 
         tui.enter()?;
 
-        loop {
+        let exit_msg = 'main: loop {
             tui.draw(|f| {
                 self.render(f);
             })?;
@@ -181,8 +169,9 @@ impl App {
             if let Some(evt) = tui.next().await {
                 let mut maybe_action = self.handle_event(evt);
                 while let Some(action) = maybe_action {
-                    if action == Action::ExitApp {
+                    if let Action::ExitApp(msg) = action {
                         self.should_quit = true;
+                        break 'main msg;
                     }
                     maybe_action = self.update(action, {
                         let this = &mut tui;
@@ -190,20 +179,23 @@ impl App {
                     })?;
                 }
             }
-
-            if self.should_quit {
-                break;
-            }
-        }
+        };
 
         tui.exit()?;
+
+        if let Some(msg) = exit_msg {
+            eprintln!("{msg}");
+        }
 
         Ok(())
     }
 }
 
 pub fn start_tui(lhs: PathBuf, rhs: PathBuf) -> Result<(), DiffTuiError> {
-    let rt = tokio::runtime::Builder::new_multi_thread().enable_time().build().unwrap();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_time()
+        .build()
+        .unwrap();
     rt.block_on(async move {
         let mut app = App {
             folder_cmp_state: FolderCmpState::new(lhs, rhs).unwrap(),

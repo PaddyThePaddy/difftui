@@ -3,19 +3,15 @@ use std::{
     collections::HashSet,
     ffi::OsStr,
     path::{Path, PathBuf},
-    sync::{Arc, LazyLock, Mutex},
+    sync::{Arc, LazyLock},
 };
 
 use ratatui::{
-    DefaultTerminal,
     buffer::Buffer,
     layout::Rect,
     style::{Color, Style, Styled, Stylize},
     symbols::merge::MergeStrategy,
-    widgets::{
-        Block, Borders, HighlightSpacing, List, ListItem, ListState, Paragraph, StatefulWidget,
-        Widget,
-    },
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, StatefulWidget, Widget},
 };
 
 use crate::{
@@ -26,7 +22,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct FolderViewState {
     side: DiffSide,
-    tree: Arc<Mutex<DirDiffTree>>,
+    tree: Arc<DirDiffTree>,
     selection: ListState,
     expanded_pathes: HashSet<PathBuf>,
     items_full_name: Vec<PathBuf>,
@@ -35,11 +31,11 @@ pub struct FolderViewState {
 
 static NORMAL_LIST_STYLE: LazyLock<Style> = LazyLock::new(|| Style::default());
 static DIFF_LIST_STYLE: LazyLock<Style> = LazyLock::new(|| Style::default().fg(Color::Red));
-static ORPHAN_LIST_STYLE: LazyLock<Style> = LazyLock::new(|| Style::default().fg(Color::Red));
+static ORPHAN_LIST_STYLE: LazyLock<Style> = LazyLock::new(|| Style::default().fg(Color::Yellow));
 static SAME_LIST_STYLE: LazyLock<Style> = LazyLock::new(|| Style::default().fg(Color::Green));
 
 impl FolderViewState {
-    pub fn new(side: DiffSide, tree: Arc<Mutex<DirDiffTree>>, selection: ListState) -> Self {
+    pub fn new(side: DiffSide, tree: Arc<DirDiffTree>, selection: ListState) -> Self {
         Self {
             side,
             tree,
@@ -132,18 +128,14 @@ impl FolderViewState {
 }
 
 impl EventHandler for FolderViewState {
-    fn handler(
-        &mut self,
-        event: &Action,
-        _: &mut TuiTerminal,
-    ) -> Result<(), crate::DiffTuiError> {
+    fn handler(&mut self, event: &Action, _: &mut TuiTerminal) -> Result<Option<Action>, crate::DiffTuiError> {
         match event {
             Action::NavUp => self.selection.scroll_up_by(1),
             Action::NavDown => self.selection.scroll_down_by(1),
             Action::ToggleSelected => self.toggle_selected(),
             _ => {}
         }
-        Ok(())
+        Ok(None)
     }
 }
 
@@ -163,10 +155,10 @@ impl<'a> StatefulWidget for FolderView<'a> {
             .borders(Borders::all())
             .merge_borders(MergeStrategy::Exact);
 
-        let tree = state.tree.lock().unwrap();
-        if let Some(root) = tree.get(Path::new("")) {
+        let tree = state.tree.clone();
+        if let Some(root) = tree.fs_tree().get(Path::new("")) {
             let mut list_items = Vec::new();
-            for child in root.borrow().children() {
+            for child in root.children() {
                 self.generate_list_item(
                     &tree,
                     &mut state.items_full_name,
@@ -220,17 +212,18 @@ impl<'a> FolderView<'a> {
         side: DiffSide,
         horizontal_scroll: usize,
     ) {
-        let root = match tree.get(root_path) {
+        let root = match tree.fs_tree().get(root_path) {
             Some(n) => n,
             None => return,
         };
+        let ds = tree.get_diff_state(root_path);
 
         let mut item_str = String::new();
         for _ in 0..level {
             item_str.push_str(Self::INDENTION);
         }
 
-        if root.borrow().diff_state().is_orphan(side.oppsite()) {
+        if ds.is_orphan(side.oppsite()) {
             list.push("".into());
         } else {
             item_str.push_str(
@@ -240,12 +233,12 @@ impl<'a> FolderView<'a> {
                     .to_string_lossy()
                     .as_ref(),
             );
-            if root.borrow().ent_type().is_dir() {
+            if root.metadata().is_dir() {
                 item_str.push('/');
             }
             let list_item =
                 ListItem::from(item_str[min(horizontal_scroll, item_str.len())..].to_string())
-                    .style(match root.borrow().diff_state() {
+                    .style(match ds {
                         DiffState::Unknown => NORMAL_LIST_STYLE.clone(),
                         DiffState::Orphan(_) => ORPHAN_LIST_STYLE.clone(),
                         DiffState::Different => DIFF_LIST_STYLE.clone(),
@@ -257,7 +250,7 @@ impl<'a> FolderView<'a> {
         items_full_name.push(root_path.to_path_buf());
 
         if self.expanded_pathes.contains(root_path) {
-            for entry in root.borrow().children().iter() {
+            for entry in root.children().iter() {
                 self.generate_list_item(
                     tree,
                     items_full_name,

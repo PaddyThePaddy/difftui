@@ -47,13 +47,31 @@ const CMP_BUFFER_SIZE: usize = 4096;
 ///
 /// Returns `Ok(true)` when both files are identical, `Ok(false)` when they
 /// differ, or an [`std::io::Error`] if either file cannot be opened or read.
-fn compare_file<LP: AsRef<Path>, RP: AsRef<Path>>(lhs: LP, rhs: RP) -> std::io::Result<bool> {
+fn compare_file<LP: AsRef<Path>, RP: AsRef<Path>>(lhs: LP, rhs: RP) -> std::io::Result<DiffState> {
     let lhs = lhs.as_ref();
     let rhs = rhs.as_ref();
     trace!("Comparing {} <=> {}", lhs.display(), rhs.display());
 
-    let mut lhs_f = std::fs::File::open(lhs)?;
-    let mut rhs_f = std::fs::File::open(rhs)?;
+    let mut lhs_f = match std::fs::File::open(lhs) {
+        Ok(f) => f,
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                return Ok(DiffState::Orphan(DiffSide::Right));
+            } else {
+                return Err(e.into());
+            }
+        }
+    };
+    let mut rhs_f = match std::fs::File::open(rhs) {
+        Ok(f) => f,
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                return Ok(DiffState::Orphan(DiffSide::Left));
+            } else {
+                return Err(e.into());
+            }
+        }
+    };
     let mut lbuf = [0u8; CMP_BUFFER_SIZE];
     let mut rbuf = [0u8; CMP_BUFFER_SIZE];
 
@@ -61,10 +79,10 @@ fn compare_file<LP: AsRef<Path>, RP: AsRef<Path>>(lhs: LP, rhs: RP) -> std::io::
         let ln = lhs_f.read(&mut lbuf)?;
         let rn = rhs_f.read(&mut rbuf)?;
         if lbuf[..ln] != rbuf[..rn] {
-            break Ok(false);
+            break Ok(DiffState::Different);
         }
         if ln == 0 {
-            break Ok(true);
+            break Ok(DiffState::Same);
         }
     }
 }
