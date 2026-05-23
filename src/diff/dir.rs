@@ -177,6 +177,7 @@ impl DirDiffTree {
                 lhs_path.display(),
                 rhs_path.display()
             );
+            ds = DiffState::Unknown;
         }
         Ok(ds)
     }
