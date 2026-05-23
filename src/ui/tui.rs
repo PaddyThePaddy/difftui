@@ -1,8 +1,7 @@
 // copied from https://ratatui.rs/recipes/apps/terminal-and-event-handler/
 
 use std::{
-    ops::{Deref, DerefMut},
-    time::Duration,
+    ops::{Deref, DerefMut}, sync::atomic::{AtomicUsize, Ordering}, time::Duration
 };
 
 use futures::{FutureExt, StreamExt};
@@ -36,6 +35,21 @@ pub enum Event {
     Key(KeyEvent),
     Mouse(MouseEvent),
     Resize(u16, u16),
+}
+
+static EVENT_STREAM_PAUSE_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+pub struct EventStreamBlocker;
+
+impl Drop for EventStreamBlocker {
+    fn drop(&mut self) {
+        EVENT_STREAM_PAUSE_COUNTER.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+pub fn pause_event_stream() -> EventStreamBlocker {
+    EVENT_STREAM_PAUSE_COUNTER.fetch_add(1, Ordering::SeqCst);
+    EventStreamBlocker
 }
 
 pub struct Tui {
@@ -106,6 +120,9 @@ impl Tui {
             let mut render_interval = tokio::time::interval(render_delay);
             _event_tx.send(Event::Init).unwrap();
             loop {
+                while EVENT_STREAM_PAUSE_COUNTER.load(Ordering::SeqCst) > 0 {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
                 let tick_delay = tick_interval.tick();
                 let render_delay = render_interval.tick();
                 let crossterm_event = reader.next().fuse();

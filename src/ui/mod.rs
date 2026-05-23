@@ -7,7 +7,10 @@ use std::{io::stdout, path::PathBuf, time::Duration};
 
 use crate::{
     DiffTuiError,
-    ui::folder_cmp_view::{FolderCmpState, FolderCmpView},
+    ui::{
+        folder_cmp_view::{FolderCmpState, FolderCmpView},
+        tui::pause_event_stream,
+    },
 };
 use crossterm::event::KeyEvent;
 use ratatui::{
@@ -210,6 +213,7 @@ pub fn run_ext_tui_app(
     cmd: &mut std::process::Command,
     terminal: &mut TuiTerminal,
 ) -> std::io::Result<()> {
+    let _event_blocker = pause_event_stream();
     stdout().execute(LeaveAlternateScreen)?;
     disable_raw_mode()?;
     cmd.status()?;
