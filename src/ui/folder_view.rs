@@ -170,16 +170,10 @@ impl<'a> StatefulWidget for FolderView<'a> {
                 );
             }
 
-            if let Some(selected_item) = state
-                .selection
-                .selected()
-                .and_then(|idx| list_items.get_mut(idx))
-            {
-                *selected_item = selected_item.clone().on_blue();
-            }
-
             StatefulWidget::render(
-                List::new(list_items).block(list_border),
+                List::new(list_items)
+                    .highlight_style(Style::new().bg(Color::Blue))
+                    .block(list_border),
                 area,
                 buf,
                 &mut state.selection,
