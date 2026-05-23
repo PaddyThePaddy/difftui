@@ -21,7 +21,7 @@ use ratatui::{
 };
 use tracing::error;
 
-pub type TuiTerminal = ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stderr>>;
+pub type TuiTerminal = ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
