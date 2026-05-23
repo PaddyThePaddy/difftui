@@ -20,7 +20,7 @@ use ratatui::{
 
 use crate::{
     diff::{DiffSide, DiffState, dir::DirDiffTree},
-    ui::{ControlEvent, EventHandler},
+    ui::{Action, EventHandler, TuiTerminal},
 };
 
 #[derive(Debug, Clone)]
@@ -134,13 +134,13 @@ impl FolderViewState {
 impl EventHandler for FolderViewState {
     fn handler(
         &mut self,
-        event: &ControlEvent,
-        _: &mut DefaultTerminal,
+        event: &Action,
+        _: &mut TuiTerminal,
     ) -> Result<(), crate::DiffTuiError> {
         match event {
-            ControlEvent::NavUp => self.selection.scroll_up_by(1),
-            ControlEvent::NavDown => self.selection.scroll_down_by(1),
-            ControlEvent::ToggleSelected => self.toggle_selected(),
+            Action::NavUp => self.selection.scroll_up_by(1),
+            Action::NavDown => self.selection.scroll_down_by(1),
+            Action::ToggleSelected => self.toggle_selected(),
             _ => {}
         }
         Ok(())

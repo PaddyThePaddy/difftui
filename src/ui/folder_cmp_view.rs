@@ -21,9 +21,7 @@ use crate::{
         dir::{DirDiffTree, build_diff_tree, cmp_tree},
     },
     ui::{
-        ControlEvent, EventHandler,
-        folder_view::{FolderView, FolderViewState},
-        run_ext_tui_app,
+        Action, EventHandler, TuiTerminal, folder_view::{FolderView, FolderViewState}, run_ext_tui_app
     },
 };
 
@@ -80,8 +78,8 @@ impl FolderCmpState {
 impl EventHandler for FolderCmpState {
     fn handler(
         &mut self,
-        event: &ControlEvent,
-        terminal: &mut DefaultTerminal,
+        event: &Action,
+        terminal: &mut TuiTerminal,
     ) -> Result<(), DiffTuiError> {
         trace!("Handling event: {event:?}");
         if let Some(handle) = self.cmp_in_progress.take_if(|h| h.is_finished()) {
@@ -91,27 +89,27 @@ impl EventHandler for FolderCmpState {
         match &mut self.focus {
             FocusState::Synced(list_state) => {
                 match event {
-                    ControlEvent::NavUp => {
+                    Action::NavUp => {
                         list_state.scroll_up_by(1);
                         *self.lhs_state.selected_mut() = *list_state;
                         *self.rhs_state.selected_mut() = *list_state;
                     }
-                    ControlEvent::NavDown => {
+                    Action::NavDown => {
                         list_state.scroll_down_by(1);
                         *self.lhs_state.selected_mut() = *list_state;
                         *self.rhs_state.selected_mut() = *list_state;
                     }
-                    ControlEvent::NavTop => {
+                    Action::NavTop => {
                         list_state.select_first();
                         *self.lhs_state.selected_mut() = *list_state;
                         *self.rhs_state.selected_mut() = *list_state;
                     }
-                    ControlEvent::NavBottom => {
+                    Action::NavBottom => {
                         list_state.select_last();
                         *self.lhs_state.selected_mut() = *list_state;
                         *self.rhs_state.selected_mut() = *list_state;
                     }
-                    ControlEvent::ToggleSelected => {
+                    Action::ToggleSelected => {
                         if let Some(selected_p) = self.lhs_state.selected_path() {
                             if self.expanded_pathes.contains(selected_p) {
                                 self.expanded_pathes.remove(selected_p);
@@ -120,7 +118,7 @@ impl EventHandler for FolderCmpState {
                             }
                         }
                     }
-                    ControlEvent::CompareSelected => {
+                    Action::CompareSelected => {
                         if let Some(selected_p) = self.lhs_state.selected_path() {
                             if self.cmp_in_progress.is_some() {
                                 error!("There is a comparison in progress");
@@ -137,7 +135,7 @@ impl EventHandler for FolderCmpState {
                             }
                         }
                     }
-                    ControlEvent::CompareAll => {
+                    Action::CompareAll => {
                         if self.cmp_in_progress.is_some() {
                             error!("There is a comparison in progress");
                         } else {
@@ -151,7 +149,7 @@ impl EventHandler for FolderCmpState {
                             }));
                         }
                     }
-                    ControlEvent::LauchExtCompare => {
+                    Action::LauchExtCompare => {
                         if let Some(selected_path) = self.lhs_state.selected_path() {
                             let lhs_path = self.lhs_path.join(selected_path);
                             let rhs_path = self.rhs_path.join(selected_path);
@@ -160,12 +158,12 @@ impl EventHandler for FolderCmpState {
                             run_ext_tui_app(&mut cmd, terminal)?;
                         }
                     }
-                    ControlEvent::NavLeft => {
+                    Action::NavLeft => {
                         self.horizontal_scroll = self.horizontal_scroll.saturating_sub(1);
                         self.lhs_state.set_horizontal_scroll(self.horizontal_scroll);
                         self.rhs_state.set_horizontal_scroll(self.horizontal_scroll);
                     }
-                    ControlEvent::NavRight => {
+                    Action::NavRight => {
                         self.horizontal_scroll = self.horizontal_scroll.saturating_add(1);
                         self.lhs_state.set_horizontal_scroll(self.horizontal_scroll);
                         self.rhs_state.set_horizontal_scroll(self.horizontal_scroll);
@@ -218,7 +216,7 @@ impl StatefulWidget for FolderCmpView {
         )
         .render(lhs_area, buf, &mut state.lhs_state);
         FolderView::new(
-            state.lhs_path.to_string_lossy().to_string(),
+            state.rhs_path.to_string_lossy().to_string(),
             &state.expanded_pathes,
         )
         .render(rhs_area, buf, &mut state.rhs_state);

@@ -1,23 +1,39 @@
 mod folder_cmp_view;
 mod folder_view;
+mod tui;
 
-use std::{io::stdout, iter::Once, path::{Path, PathBuf}, sync::OnceLock, time::Duration};
+use std::{
+    io::stdout,
+    iter::Once,
+    ops::{Deref, DerefMut as _},
+    path::{Path, PathBuf},
+    sync::OnceLock,
+    time::Duration,
+};
 
 use crate::{
     DiffTuiError,
-    ui::folder_cmp_view::{FolderCmpState, FolderCmpView},
+    ui::{
+        folder_cmp_view::{FolderCmpState, FolderCmpView},
+        tui::Tui,
+    },
 };
+use crossterm::event::KeyEvent;
 use ratatui::{
     DefaultTerminal, Frame,
     crossterm::{
-        self, ExecutableCommand as _, event::{Event, KeyCode, KeyModifiers}, terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode}
+        self, ExecutableCommand as _,
+        event::{Event, KeyCode, KeyModifiers},
+        terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
     },
     widgets::Widget,
 };
-use tracing::{error, info};
+use tracing::{error, info, trace};
+
+pub type TuiTerminal = ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stderr>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ControlEvent {
+pub enum Action {
     NavUp,
     NavDown,
     NavLeft,
@@ -37,36 +53,43 @@ pub enum ControlEvent {
     NoOp,
 }
 
-impl TryFrom<&Event> for ControlEvent {
+impl TryFrom<&Event> for Action {
     type Error = ();
     fn try_from(value: &Event) -> Result<Self, Self::Error> {
         if let Some(kp_ev) = value.as_key_press_event() {
-            if kp_ev.modifiers == KeyModifiers::CONTROL {
-                match kp_ev.code {
-                    KeyCode::Char('c') => Ok(Self::ExitApp),
-                    _ => Err(()),
-                }
-            } else if kp_ev.modifiers == KeyModifiers::SHIFT {
-                match kp_ev.code {
-                    KeyCode::Char('G') => Ok(Self::NavBottom),
-                    _ => {Err(())}
-                }
-            } else if kp_ev.modifiers.is_empty() {
-                match kp_ev.code {
-                    KeyCode::Char('j') | KeyCode::Down => Ok(Self::NavDown),
-                    KeyCode::Char('k') | KeyCode::Up => Ok(Self::NavUp),
-                    KeyCode::Char('h') | KeyCode::Left => Ok(Self::NavLeft),
-                    KeyCode::Char('l') | KeyCode::Right => Ok(Self::NavRight),
-                    KeyCode::Char('q') => Ok(Self::ExitApp),
-                    KeyCode::Char('c') => Ok(Self::CompareSelected),
-                    KeyCode::Char('a') => Ok(Self::CompareAll),
-                    KeyCode::Char('o') => Ok(Self::LauchExtCompare),
-                    KeyCode::Char('g') => Ok(Self::NavTop),
-                    KeyCode::Enter => Ok(Self::ToggleSelected),
-                    _ => Err(()),
-                }
-            } else {
-                Err(())
+            kp_ev.try_into()
+        } else {
+            Err(())
+        }
+    }
+}
+
+impl TryFrom<KeyEvent> for Action {
+    type Error = ();
+    fn try_from(value: KeyEvent) -> Result<Self, Self::Error> {
+        if value.modifiers == KeyModifiers::CONTROL {
+            match value.code {
+                KeyCode::Char('c') => Ok(Self::ExitApp),
+                _ => Err(()),
+            }
+        } else if value.modifiers == KeyModifiers::SHIFT {
+            match value.code {
+                KeyCode::Char('G') => Ok(Self::NavBottom),
+                _ => Err(()),
+            }
+        } else if value.modifiers.is_empty() {
+            match value.code {
+                KeyCode::Char('j') | KeyCode::Down => Ok(Self::NavDown),
+                KeyCode::Char('k') | KeyCode::Up => Ok(Self::NavUp),
+                KeyCode::Char('h') | KeyCode::Left => Ok(Self::NavLeft),
+                KeyCode::Char('l') | KeyCode::Right => Ok(Self::NavRight),
+                KeyCode::Char('q') => Ok(Self::ExitApp),
+                KeyCode::Char('c') => Ok(Self::CompareSelected),
+                KeyCode::Char('a') => Ok(Self::CompareAll),
+                KeyCode::Char('o') => Ok(Self::LauchExtCompare),
+                KeyCode::Char('g') => Ok(Self::NavTop),
+                KeyCode::Enter => Ok(Self::ToggleSelected),
+                _ => Err(()),
             }
         } else {
             Err(())
@@ -75,7 +98,11 @@ impl TryFrom<&Event> for ControlEvent {
 }
 
 pub trait EventHandler {
-    fn handler(&mut self, event: &ControlEvent, terminal: &mut DefaultTerminal) -> Result<(), DiffTuiError>;
+    fn handler(
+        &mut self,
+        event: &Action,
+        terminal: &mut TuiTerminal,
+    ) -> Result<(), DiffTuiError>;
 }
 
 pub trait WidgetWithEventHandler: Widget + EventHandler {}
@@ -83,29 +110,32 @@ pub trait WidgetWithEventHandler: Widget + EventHandler {}
 impl<T: Widget + EventHandler> WidgetWithEventHandler for T {}
 
 pub struct App {
-    tabs: Vec<Box<dyn WidgetWithEventHandler>>,
-    current_tab: Option<usize>,
+    should_quit: bool,
+    // tabs: Vec<Box<dyn WidgetWithEventHandler>>,
+    // current_tab: Option<usize>,
 
     // for testing
     folder_cmp_state: FolderCmpState,
 }
 
 impl App {
-    pub fn app_main(&mut self, term: &mut DefaultTerminal) -> std::io::Result<()> {
+    pub fn app_main(&mut self, term: &mut TuiTerminal) -> std::io::Result<()> {
         loop {
             term.draw(|frame: &mut Frame| {
                 self.render(frame);
             })?;
             if crossterm::event::poll(Duration::new(0, 100))? {
                 let event = crossterm::event::read()?;
-                if let Ok(event) = ControlEvent::try_from(&event) {
-                    if event == ControlEvent::ExitApp {
+                if let Ok(event) = Action::try_from(&event) {
+                    if event == Action::ExitApp {
                         break Ok(());
                     }
                     self.folder_cmp_state.handler(&event, term).unwrap();
                 }
             } else {
-                self.folder_cmp_state.handler(&ControlEvent::NoOp, term).unwrap();
+                self.folder_cmp_state
+                    .handler(&Action::NoOp, term)
+                    .unwrap();
             }
         }
     }
@@ -118,32 +148,76 @@ impl App {
             &mut self.folder_cmp_state,
         );
     }
+
+    fn handle_event(&mut self, evt: tui::Event) -> Option<Action> {
+        if let tui::Event::Key(k_evt) = evt {
+            Action::try_from(k_evt).ok()
+        } else if let tui::Event::Tick = evt {
+            Some(Action::NoOp)
+        } else {
+            None
+        }
+    }
+
+    fn update(
+        &mut self,
+        act: Action,
+        terminal: &mut TuiTerminal,
+    ) -> Result<Option<Action>, DiffTuiError> {
+        self.folder_cmp_state.handler(&act, terminal)?;
+        Ok(None)
+    }
+
+    async fn run(&mut self) -> Result<(), DiffTuiError> {
+        let mut tui = tui::Tui::new()?.tick_rate(4.0).frame_rate(30.0);
+
+        tui.enter()?;
+
+        loop {
+            tui.draw(|f| {
+                self.render(f);
+            })?;
+
+            if let Some(evt) = tui.next().await {
+                let mut maybe_action = self.handle_event(evt);
+                while let Some(action) = maybe_action {
+                    if action == Action::ExitApp {
+                        self.should_quit = true;
+                    }
+                    maybe_action = self.update(action, {
+                        let this = &mut tui;
+                        &mut this.terminal
+                    })?;
+                }
+            }
+
+            if self.should_quit {
+                break;
+            }
+        }
+
+        tui.exit()?;
+
+        Ok(())
+    }
 }
 
-static LHS: OnceLock<PathBuf> = OnceLock::new();
-static RHS: OnceLock<PathBuf> = OnceLock::new();
-fn app_wrapper(term: &mut DefaultTerminal) -> std::io::Result<()> {
-    let mut app = App {
-        tabs: vec![],
-        current_tab: None,
-        folder_cmp_state: FolderCmpState::new(
-            LHS.get().unwrap(),
-            RHS.get().unwrap(),
-        )
-        .unwrap(),
-    };
-
-    app.app_main(term)
-}
-
-pub fn start_tui(lhs: PathBuf, rhs:PathBuf) -> Result<(), DiffTuiError> {
-    LHS.set(lhs).unwrap();
-    RHS.set(rhs).unwrap();
-    ratatui::run(app_wrapper)?;
+pub fn start_tui(lhs: PathBuf, rhs: PathBuf) -> Result<(), DiffTuiError> {
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_time().build().unwrap();
+    rt.block_on(async move {
+        let mut app = App {
+            folder_cmp_state: FolderCmpState::new(lhs, rhs).unwrap(),
+            should_quit: false,
+        };
+        app.run().await.unwrap();
+    });
     Ok(())
 }
 
-pub fn run_ext_tui_app(cmd: &mut std::process::Command, terminal: &mut DefaultTerminal) -> std::io::Result<()> {
+pub fn run_ext_tui_app(
+    cmd: &mut std::process::Command,
+    terminal: &mut TuiTerminal,
+) -> std::io::Result<()> {
     stdout().execute(LeaveAlternateScreen)?;
     disable_raw_mode()?;
     cmd.status()?;
