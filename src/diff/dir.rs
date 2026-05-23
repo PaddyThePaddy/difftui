@@ -329,23 +329,35 @@ pub fn cmp_tree(
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::DiffTuiError;
 
-    /// Runs [`build_diff_tree`] and [`cmp_tree`] for one test scenario and
-    /// returns a flat map of every relative path to its final [`DiffState`].
-    ///
-    /// `scenario` must name a sub-directory of `test/folder_cmp/` that
-    /// contains `lhs/` and `rhs/` sub-directories.
+    /// Builds a tree from `test/folder_cmp/<scenario>/{lhs,rhs}`, runs a full
+    /// comparison from the root, and returns the final diff_map snapshot.
     fn run_scenario(scenario: &str) -> HashMap<PathBuf, DiffState> {
-        // let base = PathBuf::from(format!("test/folder_cmp/{scenario}"));
-        // let lhs = base.join("lhs");
-        // let rhs = base.join("rhs");
-        // let tree = build_diff_tree(&lhs, &rhs).unwrap();
-        // cmp_tree(&tree, Path::new(""), &lhs, &rhs).unwrap();
-        // trace!("tree = {tree:#?}");
-        // tree.iter()
-        //     .map(|(k, v)| (k.clone(), v.borrow().diff_state))
-        //     .collect()
-        unimplemented!()
+        let base = PathBuf::from(format!("test/folder_cmp/{scenario}"));
+        let lhs = base.join("lhs");
+        let rhs = base.join("rhs");
+        let tree = DirDiffTree::new(lhs, rhs).unwrap();
+        tree.cmp_node(Path::new("")).unwrap();
+        tree.diff_map().lock().unwrap().clone()
+    }
+
+    #[test]
+    fn new_empty_has_no_nodes() {
+        let tree = DirDiffTree::new_empty();
+        assert!(tree.fs_tree().is_empty());
+    }
+
+    #[test]
+    fn get_diff_state_returns_unknown_for_absent_path() {
+        let tree = DirDiffTree::new_empty();
+        assert_eq!(tree.get_diff_state(Path::new("no/such/path")), DiffState::Unknown);
+    }
+
+    #[test]
+    fn cmp_node_returns_not_found_for_absent_path() {
+        let tree = DirDiffTree::new_empty();
+        assert!(matches!(tree.cmp_node(Path::new("ghost")), Err(DiffTuiError::NodeNotFound)));
     }
 
     // same/ — both sides have identical files (all empty).
@@ -391,34 +403,37 @@ mod test {
 
     // added/ — lhs has a/e.txt (not on rhs); rhs has g/h.txt (not on lhs).
     // Shared files b/** and d.txt are identical.
+    //
+    // cmp_node short-circuits for orphans (early return without recursing), so
+    // a directory that only exists on one side stays Orphan in the diff_map.
     #[test]
     fn added_lhs_only_entries_are_orphan_left() {
         let s = run_scenario("added");
-        assert_eq!(s[&PathBuf::from("a")], DiffState::Different);
-        assert_eq!(
-            s[&PathBuf::from("a/e.txt")],
-            DiffState::Orphan(DiffSide::Left)
-        );
+        assert_eq!(s[&PathBuf::from("a")], DiffState::Orphan(DiffSide::Left));
+        assert_eq!(s[&PathBuf::from("a/e.txt")], DiffState::Orphan(DiffSide::Left));
     }
 
     #[test]
     fn added_rhs_only_entries_are_orphan_right() {
         let s = run_scenario("added");
         assert_eq!(s[&PathBuf::from("g")], DiffState::Orphan(DiffSide::Right));
-        assert_eq!(
-            s[&PathBuf::from("g/h.txt")],
-            DiffState::Orphan(DiffSide::Right)
-        );
+        assert_eq!(s[&PathBuf::from("g/h.txt")], DiffState::Orphan(DiffSide::Right));
     }
 
+    // b/c/dummy_c.txt has content "testa" on lhs and "testb" on rhs in this fixture.
     #[test]
-    fn added_shared_entries_are_same() {
+    fn added_identical_files_are_same() {
         let s = run_scenario("added");
         assert_eq!(s[&PathBuf::from("d.txt")], DiffState::Same);
         assert_eq!(s[&PathBuf::from("b/dummy.txt")], DiffState::Same);
-        assert_eq!(s[&PathBuf::from("b/c/dummy_c.txt")], DiffState::Same);
-        assert_eq!(s[&PathBuf::from("b/c")], DiffState::Same);
-        assert_eq!(s[&PathBuf::from("b")], DiffState::Same);
+    }
+
+    #[test]
+    fn added_modified_file_is_different() {
+        let s = run_scenario("added");
+        assert_eq!(s[&PathBuf::from("b/c/dummy_c.txt")], DiffState::Different);
+        assert_eq!(s[&PathBuf::from("b/c")], DiffState::Different);
+        assert_eq!(s[&PathBuf::from("b")], DiffState::Different);
     }
 
     #[test]

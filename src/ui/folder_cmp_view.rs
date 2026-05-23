@@ -288,3 +288,88 @@ impl StatefulWidget for FolderCmpView {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::TuiTerminal;
+    use ratatui::{Terminal, TerminalOptions, Viewport, layout::Rect};
+
+    fn make_terminal() -> TuiTerminal {
+        Terminal::with_options(
+            ratatui::backend::CrosstermBackend::new(std::io::stderr()),
+            TerminalOptions { viewport: Viewport::Fixed(Rect::new(0, 0, 80, 24)) },
+        )
+        .unwrap()
+    }
+
+    fn fixture_state() -> FolderCmpState {
+        let base = PathBuf::from("test/folder_cmp/same");
+        FolderCmpState::new(base.join("lhs"), base.join("rhs")).unwrap()
+    }
+
+    #[test]
+    fn new_starts_loading_tree_in_background() {
+        let state = fixture_state();
+        assert!(state.loading_tree.is_some());
+    }
+
+    #[test]
+    fn tick_returns_none() {
+        let mut state = fixture_state();
+        let mut term = make_terminal();
+        assert_eq!(state.handler(&Action::Tick, &mut term).unwrap(), None);
+    }
+
+    #[test]
+    fn nav_right_increments_horizontal_scroll_on_both_panels() {
+        let mut state = fixture_state();
+        let mut term = make_terminal();
+        assert_eq!(state.horizontal_scroll, 0);
+        state.handler(&Action::NavRight, &mut term).unwrap();
+        assert_eq!(state.horizontal_scroll, 1);
+        assert_eq!(state.lhs_state.horizontal_scroll(), 1);
+        assert_eq!(state.rhs_state.horizontal_scroll(), 1);
+    }
+
+    #[test]
+    fn nav_left_decrements_horizontal_scroll() {
+        let mut state = fixture_state();
+        let mut term = make_terminal();
+        state.handler(&Action::NavRight, &mut term).unwrap();
+        state.handler(&Action::NavRight, &mut term).unwrap();
+        state.handler(&Action::NavLeft, &mut term).unwrap();
+        assert_eq!(state.horizontal_scroll, 1);
+    }
+
+    #[test]
+    fn nav_left_saturates_at_zero() {
+        let mut state = fixture_state();
+        let mut term = make_terminal();
+        state.handler(&Action::NavLeft, &mut term).unwrap();
+        assert_eq!(state.horizontal_scroll, 0);
+    }
+
+    #[test]
+    fn synced_nav_down_keeps_both_panels_in_sync() {
+        let mut state = fixture_state();
+        let mut term = make_terminal();
+        state.handler(&Action::NavDown, &mut term).unwrap();
+        assert_eq!(
+            state.lhs_state.selected().selected(),
+            state.rhs_state.selected().selected(),
+        );
+    }
+
+    #[test]
+    fn synced_nav_up_keeps_both_panels_in_sync() {
+        let mut state = fixture_state();
+        let mut term = make_terminal();
+        state.handler(&Action::NavDown, &mut term).unwrap();
+        state.handler(&Action::NavUp, &mut term).unwrap();
+        assert_eq!(
+            state.lhs_state.selected().selected(),
+            state.rhs_state.selected().selected(),
+        );
+    }
+}

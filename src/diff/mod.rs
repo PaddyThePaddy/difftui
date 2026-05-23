@@ -107,38 +107,38 @@ mod tests {
     fn identical_empty_files_are_same() {
         let a = tmp(b"");
         let b = tmp(b"");
-        assert_eq!(compare_file(a.path(), b.path()).unwrap(), true);
+        assert_eq!(compare_file(a.path(), b.path()).unwrap(), DiffState::Same);
     }
 
     #[test]
     fn identical_content_is_same() {
         let a = tmp(b"hello world");
         let b = tmp(b"hello world");
-        assert_eq!(compare_file(a.path(), b.path()).unwrap(), true);
+        assert_eq!(compare_file(a.path(), b.path()).unwrap(), DiffState::Same);
     }
 
     #[test]
     fn different_content_is_not_same() {
         let a = tmp(b"hello");
         let b = tmp(b"world");
-        assert_eq!(compare_file(a.path(), b.path()).unwrap(), false);
+        assert_eq!(compare_file(a.path(), b.path()).unwrap(), DiffState::Different);
     }
 
     #[test]
     fn same_prefix_different_length_is_not_same() {
         let a = tmp(b"hello");
         let b = tmp(b"hello world");
-        assert_eq!(compare_file(a.path(), b.path()).unwrap(), false);
+        assert_eq!(compare_file(a.path(), b.path()).unwrap(), DiffState::Different);
     }
 
     #[test]
     fn difference_at_last_byte_is_detected() {
-        let mut content = vec![0u8; 100];
+        let content = vec![0u8; 100];
         let mut other = content.clone();
         *other.last_mut().unwrap() = 1;
         let a = tmp(&content);
         let b = tmp(&other);
-        assert_eq!(compare_file(a.path(), b.path()).unwrap(), false);
+        assert_eq!(compare_file(a.path(), b.path()).unwrap(), DiffState::Different);
     }
 
     #[test]
@@ -146,23 +146,35 @@ mod tests {
         let content = vec![0xABu8; CMP_BUFFER_SIZE * 3];
         let a = tmp(&content);
         let b = tmp(&content);
-        assert_eq!(compare_file(a.path(), b.path()).unwrap(), true);
+        assert_eq!(compare_file(a.path(), b.path()).unwrap(), DiffState::Same);
     }
 
     #[test]
     fn content_larger_than_buffer_different_is_not_same() {
-        let mut lhs = vec![0u8; CMP_BUFFER_SIZE * 3];
+        let lhs = vec![0u8; CMP_BUFFER_SIZE * 3];
         let mut rhs = lhs.clone();
         // Difference sits in the third buffer chunk.
         rhs[CMP_BUFFER_SIZE * 2 + 1] = 1;
         let a = tmp(&lhs);
         let b = tmp(&rhs);
-        assert_eq!(compare_file(a.path(), b.path()).unwrap(), false);
+        assert_eq!(compare_file(a.path(), b.path()).unwrap(), DiffState::Different);
     }
 
     #[test]
-    fn missing_file_returns_error() {
+    fn missing_rhs_returns_orphan_left() {
         let a = tmp(b"data");
-        assert!(compare_file(a.path(), "/nonexistent/path/file.txt").is_err());
+        assert_eq!(
+            compare_file(a.path(), "/nonexistent/path/file.txt").unwrap(),
+            DiffState::Orphan(DiffSide::Left)
+        );
+    }
+
+    #[test]
+    fn missing_lhs_returns_orphan_right() {
+        let b = tmp(b"data");
+        assert_eq!(
+            compare_file("/nonexistent/path/file.txt", b.path()).unwrap(),
+            DiffState::Orphan(DiffSide::Right)
+        );
     }
 }

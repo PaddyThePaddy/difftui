@@ -264,3 +264,111 @@ impl<'a> FolderView<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::{Terminal, TerminalOptions, Viewport, buffer::Buffer, layout::Rect, widgets::StatefulWidget};
+
+    fn make_terminal() -> crate::ui::TuiTerminal {
+        Terminal::with_options(
+            ratatui::backend::CrosstermBackend::new(std::io::stderr()),
+            TerminalOptions { viewport: Viewport::Fixed(Rect::new(0, 0, 80, 24)) },
+        )
+        .unwrap()
+    }
+
+    fn empty_state(side: DiffSide) -> FolderViewState {
+        FolderViewState::new(
+            side,
+            Arc::new(DirDiffTree::new_empty()),
+            ListState::default().with_selected(Some(0)),
+        )
+    }
+
+    #[test]
+    fn expand_path_adds_entry() {
+        let mut state = empty_state(DiffSide::Left);
+        state.expand_path("a/b");
+        assert!(state.expanded_pathes.contains(Path::new("a/b")));
+    }
+
+    #[test]
+    fn collapse_path_removes_entry() {
+        let mut state = empty_state(DiffSide::Left);
+        state.expand_path("a/b");
+        state.collapse_path("a/b");
+        assert!(!state.expanded_pathes.contains(Path::new("a/b")));
+    }
+
+    #[test]
+    fn toggle_path_adds_then_removes() {
+        let mut state = empty_state(DiffSide::Left);
+        state.toggle_path("c/d");
+        assert!(state.expanded_pathes.contains(Path::new("c/d")));
+        state.toggle_path("c/d");
+        assert!(!state.expanded_pathes.contains(Path::new("c/d")));
+    }
+
+    #[test]
+    fn horizontal_scroll_roundtrip() {
+        let mut state = empty_state(DiffSide::Left);
+        state.set_horizontal_scroll(7);
+        assert_eq!(state.horizontal_scroll(), 7);
+        state.set_horizontal_scroll(0);
+        assert_eq!(state.horizontal_scroll(), 0);
+    }
+
+    #[test]
+    fn selected_path_is_none_before_render() {
+        let state = empty_state(DiffSide::Left);
+        assert!(state.selected_path().is_none());
+    }
+
+    #[test]
+    fn nav_down_increments_selection() {
+        let mut state = empty_state(DiffSide::Left);
+        let mut term = make_terminal();
+        state.handler(&Action::NavDown, &mut term).unwrap();
+        assert_eq!(state.selected().selected(), Some(1));
+    }
+
+    #[test]
+    fn nav_up_at_zero_stays_at_zero() {
+        let mut state = empty_state(DiffSide::Left);
+        let mut term = make_terminal();
+        state.handler(&Action::NavUp, &mut term).unwrap();
+        assert_eq!(state.selected().selected(), Some(0));
+    }
+
+    #[test]
+    fn render_with_real_tree_populates_items() {
+        let base = PathBuf::from("test/folder_cmp/same");
+        let tree = Arc::new(DirDiffTree::new(base.join("lhs"), base.join("rhs")).unwrap());
+        let mut state = FolderViewState::new(DiffSide::Left, tree, ListState::default());
+        let area = Rect::new(0, 0, 80, 24);
+        let mut buf = Buffer::empty(area);
+        FolderView::new("test".to_string(), &HashSet::new()).render(area, &mut buf, &mut state);
+        assert!(!state.items_full_name.is_empty());
+    }
+
+    #[test]
+    fn render_expanded_dir_shows_more_items() {
+        let base = PathBuf::from("test/folder_cmp/same");
+        let tree = Arc::new(DirDiffTree::new(base.join("lhs"), base.join("rhs")).unwrap());
+        let mut state = FolderViewState::new(DiffSide::Left, tree, ListState::default());
+        let area = Rect::new(0, 0, 80, 24);
+
+        let mut buf = Buffer::empty(area);
+        FolderView::new("test".to_string(), &HashSet::new()).render(area, &mut buf, &mut state);
+        let collapsed = state.items_full_name.len();
+
+        let mut expanded = HashSet::new();
+        expanded.insert(PathBuf::from("b"));
+        buf = Buffer::empty(area);
+        FolderView::new("test".to_string(), &expanded).render(area, &mut buf, &mut state);
+        let expanded = state.items_full_name.len();
+
+        assert!(expanded > collapsed, "expanded {expanded} > collapsed {collapsed}");
+    }
+}
