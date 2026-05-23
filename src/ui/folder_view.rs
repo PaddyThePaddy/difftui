@@ -9,7 +9,7 @@ use std::{
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Style, Styled, Stylize},
+    style::{Color, Style},
     symbols::merge::MergeStrategy,
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, StatefulWidget, Widget},
 };
@@ -128,7 +128,11 @@ impl FolderViewState {
 }
 
 impl EventHandler for FolderViewState {
-    fn handler(&mut self, event: &Action, _: &mut TuiTerminal) -> Result<Option<Action>, crate::DiffTuiError> {
+    fn handler(
+        &mut self,
+        event: &Action,
+        _: &mut TuiTerminal,
+    ) -> Result<Option<Action>, crate::DiffTuiError> {
         match event {
             Action::NavUp => self.selection.scroll_up_by(1),
             Action::NavDown => self.selection.scroll_down_by(1),
@@ -143,6 +147,7 @@ impl EventHandler for FolderViewState {
 pub struct FolderView<'a> {
     title: String,
     expanded_pathes: &'a HashSet<PathBuf>,
+    display_map: Option<&'a HashSet<PathBuf>>,
 }
 
 impl<'a> StatefulWidget for FolderView<'a> {
@@ -167,6 +172,7 @@ impl<'a> StatefulWidget for FolderView<'a> {
                     0,
                     state.side,
                     state.horizontal_scroll,
+                    self.display_map,
                 );
             }
 
@@ -189,10 +195,15 @@ impl<'a> StatefulWidget for FolderView<'a> {
 impl<'a> FolderView<'a> {
     const INDENTION: &'static str = "  ";
 
-    pub fn new(title: String, expanded_pathes: &'a HashSet<PathBuf>) -> FolderView<'a> {
+    pub fn new(
+        title: String,
+        expanded_pathes: &'a HashSet<PathBuf>,
+        display_map: Option<&'a HashSet<PathBuf>>,
+    ) -> FolderView<'a> {
         Self {
             title,
             expanded_pathes,
+            display_map,
         }
     }
 
@@ -205,7 +216,13 @@ impl<'a> FolderView<'a> {
         level: usize,
         side: DiffSide,
         horizontal_scroll: usize,
+        display_map: Option<&'a HashSet<PathBuf>>,
     ) {
+        if let Some(display_map) = display_map {
+            if !display_map.contains(root_path) {
+                return;
+            }
+        }
         let root = match tree.fs_tree().get(root_path) {
             Some(n) => n,
             None => return,
@@ -253,6 +270,7 @@ impl<'a> FolderView<'a> {
                     level + 1,
                     side,
                     horizontal_scroll,
+                    display_map,
                 );
             }
         }
@@ -262,12 +280,16 @@ impl<'a> FolderView<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::{Terminal, TerminalOptions, Viewport, buffer::Buffer, layout::Rect, widgets::StatefulWidget};
+    use ratatui::{
+        Terminal, TerminalOptions, Viewport, buffer::Buffer, layout::Rect, widgets::StatefulWidget,
+    };
 
     fn make_terminal() -> crate::ui::TuiTerminal {
         Terminal::with_options(
             ratatui::backend::CrosstermBackend::new(std::io::stdout()),
-            TerminalOptions { viewport: Viewport::Fixed(Rect::new(0, 0, 80, 24)) },
+            TerminalOptions {
+                viewport: Viewport::Fixed(Rect::new(0, 0, 80, 24)),
+            },
         )
         .unwrap()
     }
@@ -342,7 +364,8 @@ mod tests {
         let mut state = FolderViewState::new(DiffSide::Left, tree, ListState::default());
         let area = Rect::new(0, 0, 80, 24);
         let mut buf = Buffer::empty(area);
-        FolderView::new("test".to_string(), &HashSet::new()).render(area, &mut buf, &mut state);
+        FolderView::new("test".to_string(), &HashSet::new(), None)
+            .render(area, &mut buf, &mut state);
         assert!(!state.items_full_name.is_empty());
     }
 
@@ -354,15 +377,19 @@ mod tests {
         let area = Rect::new(0, 0, 80, 24);
 
         let mut buf = Buffer::empty(area);
-        FolderView::new("test".to_string(), &HashSet::new()).render(area, &mut buf, &mut state);
+        FolderView::new("test".to_string(), &HashSet::new(), None)
+            .render(area, &mut buf, &mut state);
         let collapsed = state.items_full_name.len();
 
         let mut expanded = HashSet::new();
         expanded.insert(PathBuf::from("b"));
         buf = Buffer::empty(area);
-        FolderView::new("test".to_string(), &expanded).render(area, &mut buf, &mut state);
+        FolderView::new("test".to_string(), &expanded, None).render(area, &mut buf, &mut state);
         let expanded = state.items_full_name.len();
 
-        assert!(expanded > collapsed, "expanded {expanded} > collapsed {collapsed}");
+        assert!(
+            expanded > collapsed,
+            "expanded {expanded} > collapsed {collapsed}"
+        );
     }
 }

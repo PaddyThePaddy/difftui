@@ -15,6 +15,8 @@ pub enum DiffTuiError {
     ThreadPaniced,
     #[error("Tree node not found")]
     NodeNotFound,
+    #[error("Glob error {0}")]
+    GlobError(#[from] globset::Error),
 }
 
 impl<T> From<crossbeam::channel::SendError<T>> for DiffTuiError {

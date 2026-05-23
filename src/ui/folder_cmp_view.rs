@@ -6,9 +6,11 @@ use std::{
 };
 
 use anyhow::Result;
+use globset::{GlobSet, GlobSetBuilder};
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Spacing},
-    widgets::{ListState, Paragraph, StatefulWidget, Widget},
+    widgets::{ListState, StatefulWidget},
 };
 use tracing::{error, trace};
 
@@ -42,6 +44,8 @@ pub struct FolderCmpState {
     cmp_in_progress: Option<JoinHandle<Result<(), DiffTuiError>>>,
     loading_tree: Option<JoinHandle<Result<DirDiffTree, DiffTuiError>>>,
     loading_msg_state: LoadingMsgState,
+    filters: GlobSet,
+    display_map: HashSet<PathBuf>,
 }
 
 impl FolderCmpState {
@@ -65,6 +69,7 @@ impl FolderCmpState {
             tree.clone(),
             ListState::default().with_selected(Some(0)),
         );
+        let default_glob_set = GlobSetBuilder::new().build()?;
 
         Ok(Self {
             lhs_path: lhs.to_path_buf(),
@@ -78,7 +83,51 @@ impl FolderCmpState {
             cmp_in_progress: None,
             loading_tree: Some(tree_loading_handle),
             loading_msg_state: LoadingMsgState::default(),
+            filters: default_glob_set,
+            display_map: HashSet::new(),
         })
+    }
+
+    pub fn set_filters(&mut self, filters: GlobSet) {
+        self.filters = filters;
+        self.display_map = self.build_display_map();
+    }
+
+    fn build_display_map(&self) -> HashSet<PathBuf> {
+        let mut map = HashSet::new();
+        Self::build_display_map_worker(&self.tree, &self.filters, Path::new(""), &mut map);
+        return map;
+    }
+
+    fn build_display_map_worker(
+        tree: &DirDiffTree,
+        filters: &GlobSet,
+        p: &Path,
+        map: &mut HashSet<PathBuf>,
+    ) -> bool {
+        let node = match tree.get_fs_node(p) {
+            Some(n) => n,
+            None => return false,
+        };
+        let mut should_display = false;
+
+        if node.metadata().is_dir() {
+            for child in node.children() {
+                if Self::build_display_map_worker(tree, filters, child, map) {
+                    should_display = true;
+                }
+            }
+        }
+
+        if filters.is_match(p) {
+            should_display = true;
+        }
+
+        if should_display {
+            map.insert(p.to_path_buf());
+        }
+
+        return should_display;
     }
 }
 
@@ -122,6 +171,7 @@ impl EventHandler for FolderCmpState {
                                     ListState::default().with_selected(Some(0)),
                                 );
                                 self.tree = tree;
+                                self.display_map = self.build_display_map();
                             }
                             Err(e) => {
                                 error!("Build tree failed: {e:?}");
@@ -233,15 +283,11 @@ impl EventHandler for FolderCmpState {
 #[derive(Debug, Default)]
 pub struct FolderCmpView;
 
-impl StatefulWidget for FolderCmpView {
-    type State = FolderCmpState;
+impl FolderCmpView {
+    pub fn render(&self, frame: &mut Frame, state: &mut FolderCmpState) {
+        let area = frame.area();
+        let buf = frame.buffer_mut();
 
-    fn render(
-        self,
-        area: ratatui::prelude::Rect,
-        buf: &mut ratatui::prelude::Buffer,
-        state: &mut Self::State,
-    ) {
         if state.loading_tree.is_some() {
             let center_area = area.centered_vertically(Constraint::Length(1));
             LoadingMsg::new("Loading file tree").render(
@@ -251,6 +297,7 @@ impl StatefulWidget for FolderCmpView {
             );
             return;
         }
+
         let vertical_layout = Layout::new(
             Direction::Vertical,
             [
@@ -269,14 +316,21 @@ impl StatefulWidget for FolderCmpView {
         .spacing(Spacing::Overlap(1));
         let [main_area, status_line] = area.layout(&vertical_layout);
         let [lhs_area, rhs_area] = main_area.layout(&horizontal_layout);
+        let display_map = if state.filters.is_empty() {
+            None
+        } else {
+            Some(&state.display_map)
+        };
         FolderView::new(
             state.lhs_path.to_string_lossy().to_string(),
             &state.expanded_pathes,
+            display_map,
         )
         .render(lhs_area, buf, &mut state.lhs_state);
         FolderView::new(
             state.rhs_path.to_string_lossy().to_string(),
             &state.expanded_pathes,
+            display_map,
         )
         .render(rhs_area, buf, &mut state.rhs_state);
         if state.cmp_in_progress.is_some() {
@@ -298,7 +352,9 @@ mod tests {
     fn make_terminal() -> TuiTerminal {
         Terminal::with_options(
             ratatui::backend::CrosstermBackend::new(std::io::stdout()),
-            TerminalOptions { viewport: Viewport::Fixed(Rect::new(0, 0, 80, 24)) },
+            TerminalOptions {
+                viewport: Viewport::Fixed(Rect::new(0, 0, 80, 24)),
+            },
         )
         .unwrap()
     }
