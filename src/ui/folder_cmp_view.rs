@@ -6,22 +6,24 @@ use std::{
 };
 
 use anyhow::Result;
-use globset::{GlobSet, GlobSetBuilder};
+use crossterm::event::{KeyCode, KeyModifiers};
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Spacing},
-    widgets::{ListState, StatefulWidget},
+    widgets::{Block, Clear, ListState, StatefulWidget, Widget as _},
 };
+use ratatui_textarea::{CursorMove, TextArea};
 use tracing::{error, trace};
 
 use crate::{
     DiffTuiError,
     diff::{DiffSide, dir::DirDiffTree},
     ui::{
-        Action, EventHandler, TuiTerminal,
+        Action, EventHandler, Notification, Popup, TuiTerminal,
         folder_view::{FolderView, FolderViewState},
         loading_msg::{LoadingMsg, LoadingMsgState},
-        run_ext_tui_app,
+        run_ext_tui_app, tui,
     },
 };
 
@@ -44,6 +46,7 @@ pub struct FolderCmpState {
     cmp_in_progress: Option<JoinHandle<Result<(), DiffTuiError>>>,
     loading_tree: Option<JoinHandle<Result<DirDiffTree, DiffTuiError>>>,
     loading_msg_state: LoadingMsgState,
+    filter_text: Vec<String>,
     filters: GlobSet,
     display_map: HashSet<PathBuf>,
 }
@@ -83,6 +86,7 @@ impl FolderCmpState {
             cmp_in_progress: None,
             loading_tree: Some(tree_loading_handle),
             loading_msg_state: LoadingMsgState::default(),
+            filter_text: vec![],
             filters: default_glob_set,
             display_map: HashSet::new(),
         })
@@ -190,6 +194,51 @@ impl EventHandler for FolderCmpState {
                 }
             }
             return Ok(None);
+        }
+
+        match event {
+            Action::PopupFilter => {
+                trace!("Request showing popup filter");
+                return Ok(Some(Action::ShowPopup(Box::new(FilterPopup::new(Some(
+                    self.filter_text.clone(),
+                ))))));
+            }
+            Action::PopupReturn(id, body) => {
+                if id == FilterPopup::ID_FILTER_CONFIRMED {
+                    let mut glob_builder = GlobSetBuilder::new();
+                    let lines: Vec<String> = body.lines().map(|s| s.to_string()).collect();
+
+                    for line in lines.iter() {
+                        let line = line.trim();
+                        if line.is_empty() {
+                            continue;
+                        }
+                        let glob = match Glob::new(line) {
+                            Ok(g) => g,
+                            Err(e) => {
+                                return Ok(Some(Action::Notification(Notification {
+                                    title: "Error".to_string(),
+                                    body: format!("Parsing glob failed: {e}"),
+                                })));
+                            }
+                        };
+                        glob_builder.add(glob);
+                    }
+                    let filters = match glob_builder.build() {
+                        Ok(f) => f,
+                        Err(e) => {
+                            return Ok(Some(Action::Notification(Notification {
+                                title: "Error".to_string(),
+                                body: format!("Build glob set failed: {e}"),
+                            })));
+                        }
+                    };
+                    self.filter_text = lines;
+                    self.set_filters(filters);
+                    return Ok(None);
+                }
+            }
+            _ => {}
         }
 
         match &mut self.focus {
@@ -343,6 +392,75 @@ impl FolderCmpView {
     }
 }
 
+#[derive(Debug)]
+pub struct FilterPopup<'ta> {
+    text: TextArea<'ta>,
+}
+
+impl<'ta> FilterPopup<'ta> {
+    const ID_FILTER_CONFIRMED: &'static str = "filters_popup::confirmed";
+    const ID_FILTER_CENCELED: &'static str = "filters_popup::canceled";
+    pub fn new(text: Option<Vec<String>>) -> Self {
+        Self {
+            text: Self::build_filter_text_area(text),
+        }
+    }
+
+    fn build_filter_text_area<'a>(text: Option<Vec<String>>) -> TextArea<'a> {
+        let mut default_text_area = if let Some(text) = text {
+            TextArea::new(text)
+        } else {
+            TextArea::default()
+        };
+        default_text_area.set_block(
+            Block::bordered()
+                .title("Filters")
+                .title_bottom("<ESC> to cancel / <Ctrl-S> to confirm"),
+        );
+        default_text_area
+    }
+}
+
+impl<'ta> Popup for FilterPopup<'ta> {
+    fn handler(&mut self, event: &crate::ui::tui::Event) -> Option<Action> {
+        if let tui::Event::Key(key_evt) = event {
+            if key_evt.modifiers == KeyModifiers::CONTROL && key_evt.code == KeyCode::Char('s') {
+                return Some(Action::PopupReturn(
+                    Self::ID_FILTER_CONFIRMED.to_string(),
+                    self.text.lines().join("\n"),
+                ));
+            } else if key_evt.code == KeyCode::Esc {
+                return Some(Action::PopupReturn(
+                    Self::ID_FILTER_CENCELED.to_string(),
+                    self.text.lines().join("\n"),
+                ));
+            } else if key_evt.code == KeyCode::Char('d')
+                && key_evt.modifiers == KeyModifiers::CONTROL
+            {
+                let mut lines = self.text.lines().to_vec();
+                let cursor = self.text.cursor();
+                lines.remove(cursor.0);
+                let mut new_area = Self::build_filter_text_area(Some(lines));
+                new_area.move_cursor(CursorMove::Jump(cursor.0 as u16, cursor.1 as u16));
+                self.text = new_area;
+            } else {
+                self.text.input(*key_evt);
+            }
+            return None;
+        }
+        return None;
+    }
+
+    fn render(&self, frame: &mut Frame) {
+        let area = frame.area();
+        let buf = frame.buffer_mut();
+        let popup_area = area.centered(Constraint::Percentage(50), Constraint::Percentage(50));
+
+        Clear::default().render(popup_area, buf);
+        self.text.render(popup_area, buf);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -374,7 +492,7 @@ mod tests {
     fn tick_returns_none() {
         let mut state = fixture_state();
         let mut term = make_terminal();
-        assert_eq!(state.handler(&Action::Tick, &mut term).unwrap(), None);
+        assert!(state.handler(&Action::Tick, &mut term).unwrap().is_none());
     }
 
     #[test]

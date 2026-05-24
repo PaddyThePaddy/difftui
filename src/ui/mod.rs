@@ -13,7 +13,6 @@ use crate::{
     },
 };
 use crossterm::event::KeyEvent;
-use globset::{Glob, GlobSetBuilder};
 use ratatui::{
     Frame,
     crossterm::{
@@ -24,20 +23,11 @@ use ratatui::{
     layout::Constraint,
     widgets::{Block, Clear, Paragraph, Widget},
 };
-use ratatui_textarea::{CursorMove, TextArea};
 use tracing::{error, trace};
 
 pub type TuiTerminal = ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>;
 
-#[derive(Debug, Clone, Default)]
-enum PopupState {
-    #[default]
-    None,
-    FilterEditor(Vec<String>),
-    Alert(String),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum Action {
     NavUp,
     NavDown,
@@ -57,6 +47,9 @@ pub enum Action {
     CompareAll,
     PopupFilter,
     Tick,
+    ShowPopup(Box<dyn Popup>),
+    PopupReturn(String, String),
+    Notification(Notification),
 }
 
 impl TryFrom<&Event> for Action {
@@ -116,108 +109,50 @@ pub trait WidgetWithEventHandler: Widget + EventHandler {}
 
 impl<T: Widget + EventHandler> WidgetWithEventHandler for T {}
 
-pub struct App<'a> {
+pub trait Popup: std::fmt::Debug {
+    fn handler(&mut self, event: &crate::ui::tui::Event) -> Option<Action>;
+    fn render(&self, frame: &mut Frame);
+}
+
+#[derive(Debug)]
+pub struct Notification {
+    pub title: String,
+    pub body: String,
+}
+
+pub struct App {
     should_quit: bool,
     // tabs: Vec<Box<dyn WidgetWithEventHandler>>,
     // current_tab: Option<usize>,
 
     // for testing
     folder_cmp_state: FolderCmpState,
-    popup: PopupState,
-    filter_text: TextArea<'a>,
+    popup: Option<Box<dyn Popup>>,
+    showing_notify: Option<Notification>,
 }
 
-impl<'a> App<'a> {
-    pub fn app_main(&mut self, term: &mut TuiTerminal) -> std::io::Result<()> {
-        loop {
-            term.draw(|frame: &mut Frame| {
-                self.render(frame);
-            })?;
-            if crossterm::event::poll(Duration::new(0, 100))? {
-                let event = crossterm::event::read()?;
-                if let Ok(event) = Action::try_from(&event) {
-                    if event == Action::ExitApp(None) {
-                        break Ok(());
-                    }
-                    self.folder_cmp_state.handler(&event, term).unwrap();
-                }
-            } else {
-                self.folder_cmp_state.handler(&Action::Tick, term).unwrap();
-            }
-        }
-    }
-
+impl App {
     fn render(&mut self, frame: &mut Frame) {
         // frame.render_stateful_widget(FolderView::default(), frame.area(), &mut self.folder_state);
         FolderCmpView::default().render(frame, &mut self.folder_cmp_state);
-        self.render_popup(frame);
+
+        if let Some(notify) = &self.showing_notify {
+            self.render_notify(frame, notify);
+        } else if let Some(popup) = &self.popup {
+            popup.render(frame);
+        }
     }
 
     fn handle_event(&mut self, evt: tui::Event) -> Option<Action> {
-        match &mut self.popup {
-            PopupState::None => {}
-            PopupState::FilterEditor(old_text) => {
-                if let tui::Event::Key(key_evt) = evt {
-                    if key_evt.modifiers == KeyModifiers::CONTROL
-                        && key_evt.code == KeyCode::Char('s')
-                    {
-                        let filter_text_lines = self.filter_text.lines();
-                        let mut glob_builder = GlobSetBuilder::new();
-
-                        for line in filter_text_lines {
-                            let line = line.trim();
-                            if line.is_empty() {
-                                continue;
-                            }
-                            let glob = match Glob::new(line) {
-                                Ok(g) => g,
-                                Err(e) => {
-                                    self.popup =
-                                        PopupState::Alert(format!("Parsing glob failed: {e}"));
-                                    return None;
-                                }
-                            };
-                            glob_builder.add(glob);
-                        }
-                        let filters = match glob_builder.build() {
-                            Ok(f) => f,
-                            Err(e) => {
-                                self.popup =
-                                    PopupState::Alert(format!("Build glob set failed: {e}"));
-                                return None;
-                            }
-                        };
-                        self.folder_cmp_state.set_filters(filters);
-                        self.popup = PopupState::None;
-                    } else if key_evt.code == KeyCode::Esc {
-                        self.filter_text = build_filter_text_area(Some(old_text.clone()));
-                        self.popup = PopupState::None;
-                    } else if key_evt.code == KeyCode::Char('d')
-                        && key_evt.modifiers == KeyModifiers::CONTROL
-                    {
-                        let mut lines = self.filter_text.lines().to_vec();
-                        let cursor = self.filter_text.cursor();
-                        lines.remove(cursor.0);
-                        let mut new_area = build_filter_text_area(Some(lines));
-                        new_area.move_cursor(CursorMove::Jump(cursor.0 as u16, cursor.1 as u16));
-                        self.filter_text = new_area;
-                    } else {
-                        self.filter_text.input(key_evt);
-                    }
-                    return None;
+        if let Some(_) = &self.showing_notify {
+            if let tui::Event::Key(key) = evt {
+                if key.code == KeyCode::Enter || key.code == KeyCode::Esc {
+                    self.showing_notify = None;
                 }
             }
-            PopupState::Alert(_) => {
-                if let tui::Event::Key(key_evt) = evt {
-                    if key_evt.code == KeyCode::Enter
-                        || key_evt.code == KeyCode::Esc
-                        || key_evt.code == KeyCode::Char('q')
-                    {
-                        self.popup = PopupState::None;
-                    }
-                }
-                return None;
-            }
+            return None;
+        } else if let Some(popup) = &mut self.popup {
+            return popup.handler(&evt);
         }
 
         if let tui::Event::Key(k_evt) = evt {
@@ -234,10 +169,17 @@ impl<'a> App<'a> {
         act: Action,
         terminal: &mut TuiTerminal,
     ) -> Result<Option<Action>, DiffTuiError> {
+        if let Action::PopupReturn(_, _) = act {
+            self.popup = None;
+        }
         match act {
-            Action::PopupFilter => {
-                self.popup = PopupState::FilterEditor(self.filter_text.lines().to_vec());
-                Ok(None)
+            Action::ShowPopup(popup) => {
+                self.popup = Some(popup);
+                return Ok(None);
+            }
+            Action::Notification(notify) => {
+                self.showing_notify = Some(notify);
+                return Ok(None);
             }
             _ => self.folder_cmp_state.handler(&act, terminal),
         }
@@ -279,40 +221,18 @@ impl<'a> App<'a> {
         Ok(())
     }
 
-    fn render_popup(&self, frame: &mut Frame) {
+    fn render_notify(&self, frame: &mut Frame, notify: &Notification) {
         let area = frame.area();
         let buf = frame.buffer_mut();
-        let popup_area = area.centered(Constraint::Percentage(80), Constraint::Percentage(80));
+        let notify_area = area.centered(Constraint::Percentage(50), Constraint::Percentage(50));
 
-        match &self.popup {
-            PopupState::FilterEditor(_) => {
-                Clear::default().render(popup_area, buf);
-                self.filter_text.render(popup_area, buf);
-            }
-            PopupState::Alert(msg) => {
-                Clear::default().render(popup_area, buf);
-                Paragraph::new(msg.as_str())
-                    .block(Block::bordered().title("Error"))
-                    .render(popup_area, buf);
-            }
-            PopupState::None => {}
-        }
+        Clear::default().render(notify_area, buf);
+        Paragraph::new(notify.body.as_str())
+            .block(Block::bordered().title(notify.title.as_str()))
+            .render(notify_area, buf);
     }
 }
 
-fn build_filter_text_area<'a>(text: Option<Vec<String>>) -> TextArea<'a> {
-    let mut default_text_area = if let Some(text) = text {
-        TextArea::new(text)
-    } else {
-        TextArea::default()
-    };
-    default_text_area.set_block(
-        Block::bordered()
-            .title("Filters")
-            .title_bottom("<ESC> to cancel / <Ctrl-S> to confirm"),
-    );
-    default_text_area
-}
 pub fn start_tui(lhs: PathBuf, rhs: PathBuf) -> Result<(), DiffTuiError> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_time()
@@ -322,8 +242,8 @@ pub fn start_tui(lhs: PathBuf, rhs: PathBuf) -> Result<(), DiffTuiError> {
         let mut app = App {
             folder_cmp_state: FolderCmpState::new(lhs, rhs).unwrap(),
             should_quit: false,
-            popup: PopupState::default(),
-            filter_text: build_filter_text_area(None),
+            popup: None,
+            showing_notify: None,
         };
         app.run().await.unwrap();
     });
