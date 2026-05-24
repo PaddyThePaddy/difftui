@@ -441,7 +441,11 @@ impl FolderCmpView {
         )
         .render(rhs_area, buf, &mut state.rhs_state);
         if state.cmp_in_progress.is_some() {
-            LoadingMsg::new("Comparing...").render(status_line, buf, &mut state.loading_msg_state);
+            LoadingMsg::new("Comparing...").center(false).render(
+                status_line,
+                buf,
+                &mut state.loading_msg_state,
+            );
         }
 
         if let FocusState::Synced(list_state) = &mut state.focus {

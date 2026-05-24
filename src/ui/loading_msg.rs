@@ -17,13 +17,20 @@ impl LoadingMsgState {
 #[derive(Debug, Default, Clone)]
 pub struct LoadingMsg {
     msg: String,
+    center: bool,
 }
 
 impl LoadingMsg {
     pub fn new(msg: impl ToString) -> Self {
         Self {
             msg: msg.to_string(),
+            center: true,
         }
+    }
+
+    pub fn center(mut self, center: bool) -> Self {
+        self.center = center;
+        self
     }
 }
 
@@ -45,7 +52,11 @@ impl StatefulWidget for LoadingMsg {
         };
         let s = format!("{} {}", icon, self.msg);
         Paragraph::new(s)
-            .alignment(Alignment::Center)
+            .alignment(if self.center {
+                Alignment::Center
+            } else {
+                Alignment::Left
+            })
             .render(area, buf);
     }
 }
