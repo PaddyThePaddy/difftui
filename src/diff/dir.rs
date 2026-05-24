@@ -295,29 +295,32 @@ impl TreeNode {
 /// are also logged (they indicate the receiver has been dropped early).
 fn walk_tree(cwd: PathBuf, sender: Sender<(PathBuf, std::fs::Metadata, DiffSide)>, side: DiffSide) {
     trace!("Tree walker started");
-    let walker = ignore::WalkBuilder::new(cwd.as_path()).build();
+    let par_walker = ignore::WalkBuilder::new(cwd.as_path()).build_parallel();
+    par_walker.run(|| {
+        Box::new(|entry| {
+            match entry {
+                Err(e) => {
+                    error!("Walk {} error {e}", cwd.as_path().display());
+                }
+                Ok(entry) => {
+                    if let Err(_) = sender.send((
+                        entry
+                            .path()
+                            .strip_prefix(&cwd)
+                            .map(|p| p.to_path_buf())
+                            .unwrap_or(entry.path().to_path_buf()),
+                        // TODO: error handling
+                        entry.metadata().unwrap(),
+                        side,
+                    )) {
+                        error!("Send while channel disconnected");
+                    };
+                }
+            }
+            ignore::WalkState::Continue
+        })
+    });
 
-    for entry in walker {
-        match entry {
-            Err(e) => {
-                error!("Walk {} error {e}", cwd.as_path().display());
-            }
-            Ok(entry) => {
-                if let Err(_) = sender.send((
-                    entry
-                        .path()
-                        .strip_prefix(&cwd)
-                        .map(|p| p.to_path_buf())
-                        .unwrap_or(entry.path().to_path_buf()),
-                    // TODO: error handling
-                    entry.metadata().unwrap(),
-                    side,
-                )) {
-                    error!("Send while channel disconnected");
-                };
-            }
-        }
-    }
     trace!("Tree walker completed");
 }
 
