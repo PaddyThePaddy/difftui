@@ -1,14 +1,15 @@
 mod folder_cmp_view;
 mod folder_view;
 mod loading_msg;
-mod tui;
 mod menu;
+mod text_cmp_view;
+mod tui;
 
 use std::{io::stdout, path::PathBuf, time::Duration};
 
 use crate::{
     DiffTuiError,
-    ui::{folder_cmp_view::FolderCmpState, tui::pause_event_stream},
+    ui::{folder_cmp_view::FolderCmpState, text_cmp_view::TextCmpView, tui::pause_event_stream},
 };
 use crossterm::event::KeyEvent;
 use ratatui::{
@@ -299,8 +300,13 @@ pub fn start_tui(lhs: PathBuf, rhs: PathBuf) -> Result<(), DiffTuiError> {
         .build()
         .unwrap();
     rt.block_on(async move {
+        let first_tab: Box<dyn TabState> = if lhs.metadata()?.is_file() {
+            Box::new(TextCmpView::new(lhs, rhs)?)
+        } else {
+            Box::new(FolderCmpState::new(lhs, rhs)?)
+        };
         let mut app = App {
-            tabs: vec![Box::new(FolderCmpState::new(lhs, rhs)?)],
+            tabs: vec![first_tab],
             current_tab: 0,
             should_quit: false,
             popup: None,

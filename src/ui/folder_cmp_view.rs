@@ -21,7 +21,7 @@ use crate::{
     DiffTuiError,
     diff::{DiffSide, dir::DirDiffTree},
     ui::{
-        Action, EventHandler, Notification, Popup, TabState, TuiTerminal, folder_view::{FolderView, FolderViewState}, loading_msg::{LoadingMsg, LoadingMsgState}, menu::Menu, run_ext_tui_app, tui
+        Action, EventHandler, Notification, Popup, TabState, TuiTerminal, folder_view::{FolderView, FolderViewState}, loading_msg::{LoadingMsg, LoadingMsgState}, menu::Menu, run_ext_tui_app, text_cmp_view::TextCmpView, tui
     },
 };
 
@@ -284,6 +284,19 @@ impl EventHandler for FolderCmpState {
                                     ))));
                                 }
                             }
+                            "new file tab" => {
+                                if let Some((lhs, rhs)) = self
+                                    .lhs_state
+                                    .selected_path()
+                                    .zip(self.rhs_state.selected_path())
+                                {
+                                    let lhs = self.lhs_path.join(lhs);
+                                    let rhs = self.rhs_path.join(rhs);
+                                    return Ok(Some(Action::CreateTabAndSwitch(Box::new(
+                                        TextCmpView::new(lhs, rhs)?,
+                                    ))));
+                                }
+                            }
                             _ => {
                                 return Ok(Some(Action::Notification(Notification {
                                     title: "Unknown option".to_string(),
@@ -307,6 +320,11 @@ impl EventHandler for FolderCmpState {
                         && rhs.metadata().is_ok_and(|meta| meta.is_dir())
                     {
                         options.push(("new tab".to_string(), Some('t')))
+                    }
+                    if lhs.metadata().is_ok_and(|meta| meta.is_file())
+                        && rhs.metadata().is_ok_and(|meta| meta.is_file())
+                    {
+                        options.push(("new file tab".to_string(), Some('t')))
                     }
                 }
                 return Ok(Some(Action::ShowPopup(Box::new(
