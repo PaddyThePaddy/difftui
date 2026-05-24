@@ -191,13 +191,15 @@ impl App {
         tui.enter()?;
 
         let exit_msg = 'main: loop {
-            tui.draw(|f| {
-                trace!("Render cycle starts");
-                self.render(f);
-                trace!("Render cycle completed");
-            })?;
-
             if let Some(evt) = tui.next().await {
+                if let tui::Event::Render = evt {
+                    tui.draw(|f| {
+                        trace!("Render cycle starts");
+                        self.render(f);
+                        trace!("Render cycle completed");
+                        tui::render_complete();
+                    })?;
+                }
                 let mut maybe_action = self.handle_event(evt);
                 while let Some(action) = maybe_action {
                     if let Action::ExitApp(msg) = action {

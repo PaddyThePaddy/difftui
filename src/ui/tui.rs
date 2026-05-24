@@ -1,7 +1,9 @@
 // copied from https://ratatui.rs/recipes/apps/terminal-and-event-handler/
 
 use std::{
-    ops::{Deref, DerefMut}, sync::atomic::{AtomicUsize, Ordering}, time::Duration
+    ops::{Deref, DerefMut},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    time::Duration,
 };
 
 use futures::{FutureExt, StreamExt};
@@ -18,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use tokio::{
     sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
     task::JoinHandle,
+    time::MissedTickBehavior,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -38,6 +41,7 @@ pub enum Event {
 }
 
 static EVENT_STREAM_PAUSE_COUNTER: AtomicUsize = AtomicUsize::new(0);
+static RENDER_PENDING: AtomicBool = AtomicBool::new(false);
 
 pub struct EventStreamBlocker;
 
@@ -50,6 +54,10 @@ impl Drop for EventStreamBlocker {
 pub fn pause_event_stream() -> EventStreamBlocker {
     EVENT_STREAM_PAUSE_COUNTER.fetch_add(1, Ordering::SeqCst);
     EventStreamBlocker
+}
+
+pub fn render_complete() {
+    RENDER_PENDING.store(false, Ordering::SeqCst);
 }
 
 pub struct Tui {
@@ -118,6 +126,8 @@ impl Tui {
             let mut reader = crossterm::event::EventStream::new();
             let mut tick_interval = tokio::time::interval(tick_delay);
             let mut render_interval = tokio::time::interval(render_delay);
+            tick_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+            render_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
             _event_tx.send(Event::Init).unwrap();
             loop {
                 while EVENT_STREAM_PAUSE_COUNTER.load(Ordering::SeqCst) > 0 {
@@ -127,6 +137,7 @@ impl Tui {
                 let render_delay = render_interval.tick();
                 let crossterm_event = reader.next().fuse();
                 tokio::select! {
+                  biased;
                   _ = _cancellation_token.cancelled() => {
                     break;
                   }
@@ -162,11 +173,13 @@ impl Tui {
                       None => {},
                     }
                   },
+                  _ = render_delay => {
+                      if !RENDER_PENDING.swap(true, Ordering::SeqCst) {
+                        _event_tx.send(Event::Render).unwrap();
+                      }
+                  },
                   _ = tick_delay => {
                       _event_tx.send(Event::Tick).unwrap();
-                  },
-                  _ = render_delay => {
-                      _event_tx.send(Event::Render).unwrap();
                   },
                 }
             }
