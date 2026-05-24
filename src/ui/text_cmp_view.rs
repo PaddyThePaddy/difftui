@@ -92,6 +92,12 @@ impl<'a> TabState for TextCmpView<'a> {
                 rhs_list.push(line.clone());
             }
         }
+        while lhs_list.len() < rhs_list.len() {
+            lhs_list.push(Line::default().crossed_out());
+        }
+        while lhs_list.len() > rhs_list.len() {
+            rhs_list.push(Line::default().crossed_out());
+        }
 
         let layout = Layout::new(
             Direction::Horizontal,
