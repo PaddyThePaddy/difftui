@@ -49,6 +49,7 @@ pub struct FolderCmpState {
     filter_text: Vec<String>,
     filters: GlobSet,
     display_map: HashSet<PathBuf>,
+    filtered_tree: Option<Arc<DirDiffTree>>,
 }
 
 impl FolderCmpState {
@@ -89,16 +90,29 @@ impl FolderCmpState {
             filter_text: vec![],
             filters: default_glob_set,
             display_map: HashSet::new(),
+            filtered_tree: None,
         })
     }
 
     pub fn set_filters(&mut self, filters: GlobSet) {
-        self.filters = filters;
-        self.display_map = self.build_display_map();
+        if filters.is_empty() {
+            self.display_map.clear();
+            self.filtered_tree = None;
+            self.lhs_state.set_tree(self.tree.clone());
+            self.rhs_state.set_tree(self.tree.clone());
+        } else {
+            self.filters = filters;
+            self.display_map = self.build_display_map();
+            let new_tree = Arc::new(self.tree.clone_filtered_tree(&self.display_map));
+            self.lhs_state.set_tree(new_tree.clone());
+            self.rhs_state.set_tree(new_tree.clone());
+            self.filtered_tree = Some(new_tree);
+        }
     }
 
     fn build_display_map(&self) -> HashSet<PathBuf> {
         let mut map = HashSet::new();
+        map.insert(PathBuf::from(""));
         Self::build_display_map_worker(&self.tree, &self.filters, Path::new(""), &mut map);
         return map;
     }
@@ -154,6 +168,10 @@ impl EventHandler for FolderCmpState {
                 if let Some(h) = self.cmp_in_progress.take() {
                     if let Err(e) = h.join() {
                         error!("Comparing thread panic: {e:?}");
+                        return Ok(Some(Action::Notification(Notification {
+                            title: "Alert".to_string(),
+                            body: format!("Comparing thread panic: {e:?}"),
+                        })));
                     }
                 }
             }
@@ -290,8 +308,17 @@ impl EventHandler for FolderCmpState {
                     Action::CompareAll => {
                         if self.cmp_in_progress.is_some() {
                             error!("There is a comparison in progress");
+                            return Ok(Some(Action::Notification(Notification {
+                                title: "Abort".to_string(),
+                                body: "There is a comparison in progress".to_string(),
+                            })));
                         } else {
-                            let tree = self.tree.clone();
+                            let tree = if let Some(tree) = &self.filtered_tree {
+                                trace!("Comparing filtered tree");
+                                tree.clone()
+                            } else {
+                                self.tree.clone()
+                            };
                             self.cmp_in_progress = Some(std::thread::spawn(move || {
                                 tree.cmp_node(Path::new(""))?;
                                 return Ok::<(), DiffTuiError>(());
@@ -365,21 +392,14 @@ impl FolderCmpView {
         .spacing(Spacing::Overlap(1));
         let [main_area, status_line] = area.layout(&vertical_layout);
         let [lhs_area, rhs_area] = main_area.layout(&horizontal_layout);
-        let display_map = if state.filters.is_empty() {
-            None
-        } else {
-            Some(&state.display_map)
-        };
         FolderView::new(
             state.lhs_path.to_string_lossy().to_string(),
             &state.expanded_pathes,
-            display_map,
         )
         .render(lhs_area, buf, &mut state.lhs_state);
         FolderView::new(
             state.rhs_path.to_string_lossy().to_string(),
             &state.expanded_pathes,
-            display_map,
         )
         .render(rhs_area, buf, &mut state.rhs_state);
         if state.cmp_in_progress.is_some() {

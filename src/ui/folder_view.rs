@@ -125,6 +125,10 @@ impl FolderViewState {
     pub fn set_horizontal_scroll(&mut self, scroll: usize) {
         self.horizontal_scroll = scroll;
     }
+
+    pub fn set_tree(&mut self, new_tree: Arc<DirDiffTree>) {
+        self.tree = new_tree;
+    }
 }
 
 impl EventHandler for FolderViewState {
@@ -147,7 +151,6 @@ impl EventHandler for FolderViewState {
 pub struct FolderView<'a> {
     title: String,
     expanded_pathes: &'a HashSet<PathBuf>,
-    display_map: Option<&'a HashSet<PathBuf>>,
 }
 
 impl<'a> StatefulWidget for FolderView<'a> {
@@ -172,7 +175,6 @@ impl<'a> StatefulWidget for FolderView<'a> {
                     0,
                     state.side,
                     state.horizontal_scroll,
-                    self.display_map,
                 );
             }
 
@@ -195,15 +197,10 @@ impl<'a> StatefulWidget for FolderView<'a> {
 impl<'a> FolderView<'a> {
     const INDENTION: &'static str = "  ";
 
-    pub fn new(
-        title: String,
-        expanded_pathes: &'a HashSet<PathBuf>,
-        display_map: Option<&'a HashSet<PathBuf>>,
-    ) -> FolderView<'a> {
+    pub fn new(title: String, expanded_pathes: &'a HashSet<PathBuf>) -> FolderView<'a> {
         Self {
             title,
             expanded_pathes,
-            display_map,
         }
     }
 
@@ -216,13 +213,7 @@ impl<'a> FolderView<'a> {
         level: usize,
         side: DiffSide,
         horizontal_scroll: usize,
-        display_map: Option<&'a HashSet<PathBuf>>,
     ) {
-        if let Some(display_map) = display_map {
-            if !display_map.contains(root_path) {
-                return;
-            }
-        }
         let root = match tree.fs_tree().get(root_path) {
             Some(n) => n,
             None => return,
@@ -270,7 +261,6 @@ impl<'a> FolderView<'a> {
                     level + 1,
                     side,
                     horizontal_scroll,
-                    display_map,
                 );
             }
         }
@@ -364,8 +354,7 @@ mod tests {
         let mut state = FolderViewState::new(DiffSide::Left, tree, ListState::default());
         let area = Rect::new(0, 0, 80, 24);
         let mut buf = Buffer::empty(area);
-        FolderView::new("test".to_string(), &HashSet::new(), None)
-            .render(area, &mut buf, &mut state);
+        FolderView::new("test".to_string(), &HashSet::new()).render(area, &mut buf, &mut state);
         assert!(!state.items_full_name.is_empty());
     }
 
@@ -377,14 +366,13 @@ mod tests {
         let area = Rect::new(0, 0, 80, 24);
 
         let mut buf = Buffer::empty(area);
-        FolderView::new("test".to_string(), &HashSet::new(), None)
-            .render(area, &mut buf, &mut state);
+        FolderView::new("test".to_string(), &HashSet::new()).render(area, &mut buf, &mut state);
         let collapsed = state.items_full_name.len();
 
         let mut expanded = HashSet::new();
         expanded.insert(PathBuf::from("b"));
         buf = Buffer::empty(area);
-        FolderView::new("test".to_string(), &expanded, None).render(area, &mut buf, &mut state);
+        FolderView::new("test".to_string(), &expanded).render(area, &mut buf, &mut state);
         let expanded = state.items_full_name.len();
 
         assert!(

@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -33,7 +33,7 @@ impl DirDiffTree {
     }
 
     pub fn new_empty() -> Self {
-        Self{
+        Self {
             lhs: PathBuf::new(),
             rhs: PathBuf::new(),
             fs_tree: HashMap::new(),
@@ -67,9 +67,11 @@ impl DirDiffTree {
 
         trace!("Recving tree nodes");
         while let Ok((p, meta, side)) = rx.recv() {
-            trace!("Got {}", p.display());
             if let Some(state) = diff_map.get_mut(&p) {
-                if tree.get(&p).is_some_and(|n|n.metadata.file_type() != meta.file_type()) {
+                if tree
+                    .get(&p)
+                    .is_some_and(|n| n.metadata.file_type() != meta.file_type())
+                {
                     *state = DiffState::Different;
                 }
                 *state = DiffState::Unknown;
@@ -79,9 +81,9 @@ impl DirDiffTree {
 
             if let Some(parent) = p.parent() {
                 if let Some(parent_node) = tree.get_mut(parent) {
-                    if meta.is_dir() && !parent_node.children.contains(&p){
+                    if meta.is_dir() && !parent_node.children.contains(&p) {
                         parent_node.children.push(p.clone());
-                    } else if !meta.is_dir() && !parent_node.children_non_dir.contains(&p){
+                    } else if !meta.is_dir() && !parent_node.children_non_dir.contains(&p) {
                         parent_node.children_non_dir.push(p.clone());
                     }
                 } else {
@@ -201,6 +203,7 @@ impl DirDiffTree {
     }
 
     pub fn cmp_node(&self, root: &Path) -> Result<DiffState, DiffTuiError> {
+        trace!("Comparing node {}", root.display());
         let node = self.fs_tree().get(root).ok_or(DiffTuiError::NodeNotFound)?;
         let ds: DiffState;
 
@@ -240,6 +243,30 @@ impl DirDiffTree {
 
     pub fn get_fs_node(&self, p: &Path) -> Option<&TreeNode> {
         self.fs_tree().get(p)
+    }
+
+    pub fn clone_filtered_tree(&self, filter: &HashSet<PathBuf>) -> Self {
+        let mut new_fs_tree = HashMap::new();
+
+        for (k, v) in self.fs_tree.iter() {
+            if filter.contains(k) {
+                let mut entry = v.clone();
+                entry.children = entry
+                    .children
+                    .iter()
+                    .filter(|p| filter.contains(*p))
+                    .cloned()
+                    .collect();
+                new_fs_tree.insert(k.clone(), entry);
+            }
+        }
+
+        Self {
+            fs_tree: new_fs_tree,
+            diff_map: self.diff_map.clone(),
+            lhs: self.lhs.clone(),
+            rhs: self.rhs.clone(),
+        }
     }
 }
 
@@ -352,13 +379,19 @@ mod test {
     #[test]
     fn get_diff_state_returns_unknown_for_absent_path() {
         let tree = DirDiffTree::new_empty();
-        assert_eq!(tree.get_diff_state(Path::new("no/such/path")), DiffState::Unknown);
+        assert_eq!(
+            tree.get_diff_state(Path::new("no/such/path")),
+            DiffState::Unknown
+        );
     }
 
     #[test]
     fn cmp_node_returns_not_found_for_absent_path() {
         let tree = DirDiffTree::new_empty();
-        assert!(matches!(tree.cmp_node(Path::new("ghost")), Err(DiffTuiError::NodeNotFound)));
+        assert!(matches!(
+            tree.cmp_node(Path::new("ghost")),
+            Err(DiffTuiError::NodeNotFound)
+        ));
     }
 
     // same/ — both sides have identical files (all empty).
@@ -411,14 +444,20 @@ mod test {
     fn added_lhs_only_entries_are_orphan_left() {
         let s = run_scenario("added");
         assert_eq!(s[&PathBuf::from("a")], DiffState::Orphan(DiffSide::Left));
-        assert_eq!(s[&PathBuf::from("a/e.txt")], DiffState::Orphan(DiffSide::Left));
+        assert_eq!(
+            s[&PathBuf::from("a/e.txt")],
+            DiffState::Orphan(DiffSide::Left)
+        );
     }
 
     #[test]
     fn added_rhs_only_entries_are_orphan_right() {
         let s = run_scenario("added");
         assert_eq!(s[&PathBuf::from("g")], DiffState::Orphan(DiffSide::Right));
-        assert_eq!(s[&PathBuf::from("g/h.txt")], DiffState::Orphan(DiffSide::Right));
+        assert_eq!(
+            s[&PathBuf::from("g/h.txt")],
+            DiffState::Orphan(DiffSide::Right)
+        );
     }
 
     // b/c/dummy_c.txt has content "testa" on lhs and "testb" on rhs in this fixture.
