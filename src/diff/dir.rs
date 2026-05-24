@@ -11,7 +11,7 @@ use tracing::{error, trace};
 
 use crate::{
     DiffTuiError,
-    diff::{DiffSide, DiffState, compare_file},
+    diff::{DiffSide, DiffState, file::compare_file},
 };
 
 const CHANNEL_CAPACITY: usize = 100;

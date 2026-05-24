@@ -21,10 +21,7 @@ use crate::{
     DiffTuiError,
     diff::{DiffSide, dir::DirDiffTree},
     ui::{
-        Action, EventHandler, Menu, Notification, Popup, TabState, TuiTerminal,
-        folder_view::{FolderView, FolderViewState},
-        loading_msg::{LoadingMsg, LoadingMsgState},
-        run_ext_tui_app, tui,
+        Action, EventHandler, Notification, Popup, TabState, TuiTerminal, folder_view::{FolderView, FolderViewState}, loading_msg::{LoadingMsg, LoadingMsgState}, menu::Menu, run_ext_tui_app, tui
     },
 };
 
