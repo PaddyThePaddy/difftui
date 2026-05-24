@@ -228,6 +228,14 @@ impl<'a> FolderView<'a> {
         if ds.is_orphan(side.oppsite()) {
             list.push("".into());
         } else {
+            if root.metadata().is_dir() {
+                if self.expanded_pathes.contains(root_path) {
+                    item_str.push('▾');
+                } else {
+                    item_str.push('▸');
+                }
+                item_str.push(' ');
+            }
             item_str.push_str(
                 root_path
                     .file_name()
@@ -235,9 +243,6 @@ impl<'a> FolderView<'a> {
                     .to_string_lossy()
                     .as_ref(),
             );
-            if root.metadata().is_dir() {
-                item_str.push('/');
-            }
             let list_item =
                 ListItem::from(item_str[min(horizontal_scroll, item_str.len())..].to_string())
                     .style(match ds {
