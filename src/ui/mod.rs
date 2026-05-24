@@ -7,21 +7,21 @@ use std::{io::stdout, path::PathBuf, time::Duration};
 
 use crate::{
     DiffTuiError,
-    ui::{
-        folder_cmp_view::{FolderCmpState, FolderCmpView},
-        tui::pause_event_stream,
-    },
+    ui::{folder_cmp_view::FolderCmpState, tui::pause_event_stream},
 };
 use crossterm::event::KeyEvent;
 use ratatui::{
     Frame,
+    buffer::Buffer,
     crossterm::{
         self, ExecutableCommand as _,
         event::{Event, KeyCode, KeyModifiers},
         terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
     },
-    layout::Constraint,
-    widgets::{Block, Clear, Paragraph, Widget},
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Style, Stylize},
+    text::{Line, Span},
+    widgets::{Block, Clear, List, ListItem, ListState, Paragraph, StatefulWidget, Tabs, Widget},
 };
 use tracing::{error, trace};
 
@@ -38,7 +38,6 @@ pub enum Action {
     ExpandSelected,
     CollapseSelected,
     ToggleSelected,
-    LauchExtCompare,
     ToggleCoupling,
     OpenSelectedInNewTab,
     ExitApp(Option<String>),
@@ -46,9 +45,13 @@ pub enum Action {
     CompareAll,
     PopupFilter,
     Tick,
+    Open,
     ShowPopup(Box<dyn Popup>),
-    PopupReturn(String, String),
+    PopupReturn(String, Option<String>),
     Notification(Notification),
+    CreateTabAndSwitch(Box<dyn TabState>),
+    NextTab,
+    PrevTab,
 }
 
 impl TryFrom<&Event> for Action {
@@ -73,6 +76,7 @@ impl TryFrom<KeyEvent> for Action {
         } else if value.modifiers == KeyModifiers::SHIFT {
             match value.code {
                 KeyCode::Char('G') => Ok(Self::NavBottom),
+                KeyCode::BackTab => Ok(Self::PrevTab),
                 _ => Err(()),
             }
         } else if value.modifiers.is_empty() {
@@ -84,11 +88,12 @@ impl TryFrom<KeyEvent> for Action {
                 KeyCode::Char('q') => Ok(Self::ExitApp(None)),
                 KeyCode::Char('c') => Ok(Self::CompareSelected),
                 KeyCode::Char('a') => Ok(Self::CompareAll),
-                KeyCode::Char('o') => Ok(Self::LauchExtCompare),
+                KeyCode::Char('o') => Ok(Self::Open),
                 KeyCode::Char('g') => Ok(Self::NavTop),
                 KeyCode::Char('/') => Ok(Self::PopupFilter),
                 KeyCode::Char('=') => Ok(Self::ToggleCoupling),
                 KeyCode::Enter => Ok(Self::ToggleSelected),
+                KeyCode::Tab => Ok(Self::NextTab),
                 _ => Err(()),
             }
         } else {
@@ -105,13 +110,26 @@ pub trait EventHandler {
     ) -> Result<Option<Action>, DiffTuiError>;
 }
 
-pub trait WidgetWithEventHandler: Widget + EventHandler {}
-
-impl<T: Widget + EventHandler> WidgetWithEventHandler for T {}
+pub trait TabState: EventHandler + std::fmt::Debug {
+    fn title(&self) -> String;
+    fn render(&mut self, area: Rect, buf: &mut Buffer);
+}
 
 pub trait Popup: std::fmt::Debug {
     fn handler(&mut self, event: &crate::ui::tui::Event) -> Option<Action>;
-    fn render(&self, frame: &mut Frame);
+    fn render(&mut self, frame: &mut Frame);
+    fn prepare<'a>(
+        &self,
+        frame: &'a mut Frame,
+        hor: Constraint,
+        ver: Constraint,
+    ) -> (Rect, &'a mut Buffer) {
+        let area = frame.area();
+        let buf = frame.buffer_mut();
+        let popup_area = area.centered(hor, ver);
+        Clear::default().render(popup_area, buf);
+        (popup_area, buf)
+    }
 }
 
 #[derive(Debug)]
@@ -122,23 +140,35 @@ pub struct Notification {
 
 pub struct App {
     should_quit: bool,
-    // tabs: Vec<Box<dyn WidgetWithEventHandler>>,
-    // current_tab: Option<usize>,
-
-    // for testing
-    folder_cmp_state: FolderCmpState,
+    tabs: Vec<Box<dyn TabState>>,
+    current_tab: usize,
     popup: Option<Box<dyn Popup>>,
     showing_notify: Option<Notification>,
 }
 
 impl App {
     fn render(&mut self, frame: &mut Frame) {
-        // frame.render_stateful_widget(FolderView::default(), frame.area(), &mut self.folder_state);
-        FolderCmpView::default().render(frame, &mut self.folder_cmp_state);
+        if self.tabs.len() == 1 {
+            if let Some(tab) = self.tabs.get_mut(self.current_tab) {
+                tab.render(frame.area(), frame.buffer_mut());
+            }
+        } else {
+            let layout = Layout::new(
+                Direction::Vertical,
+                [Constraint::Length(1), Constraint::Fill(1)],
+            );
+            let [tabline, content_area] = frame.area().layout(&layout);
+            Tabs::new(self.tabs.iter().map(|t| t.title()))
+                .select(self.current_tab)
+                .render(tabline, frame.buffer_mut());
+            if let Some(tab) = self.tabs.get_mut(self.current_tab) {
+                tab.render(content_area, frame.buffer_mut());
+            }
+        }
 
         if let Some(notify) = &self.showing_notify {
             self.render_notify(frame, notify);
-        } else if let Some(popup) = &self.popup {
+        } else if let Some(popup) = &mut self.popup {
             popup.render(frame);
         }
     }
@@ -181,7 +211,36 @@ impl App {
                 self.showing_notify = Some(notify);
                 return Ok(None);
             }
-            _ => self.folder_cmp_state.handler(&act, terminal),
+            Action::PrevTab => {
+                if self.current_tab == 0 {
+                    if self.tabs.len() > 0 {
+                        self.current_tab = self.tabs.len() - 1;
+                    }
+                } else {
+                    self.current_tab -= 1;
+                }
+                return Ok(None);
+            }
+            Action::NextTab => {
+                self.current_tab = self.current_tab.wrapping_add(1);
+                if self.current_tab == self.tabs.len() {
+                    self.current_tab = 0;
+                }
+                return Ok(None);
+            }
+            Action::CreateTabAndSwitch(new_tab) => {
+                self.tabs.push(new_tab);
+                self.current_tab = self.tabs.len() - 1;
+                return Ok(None);
+            }
+            _ => {
+                if let Some(tab) = self.tabs.get_mut(self.current_tab) {
+                    tab.handler(&act, terminal)
+                } else {
+                    error!("Invalid tab index: {}", self.current_tab);
+                    Ok(None)
+                }
+            }
         }
     }
 
@@ -235,6 +294,129 @@ impl App {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Menu {
+    id: String,
+    title: String,
+    opts: Vec<(String, Option<char>)>,
+    sel: ListState,
+    vim_key: bool,
+}
+
+impl Menu {
+    pub fn new(title: String, opts: Vec<(String, Option<char>)>) -> Self {
+        Self {
+            id: title.clone(),
+            title,
+            opts,
+            sel: ListState::default(),
+            vim_key: false,
+        }
+    }
+    pub fn new_with_id(id: String, title: String, opts: Vec<(String, Option<char>)>) -> Self {
+        Self {
+            id,
+            title,
+            opts,
+            sel: ListState::default(),
+            vim_key: false,
+        }
+    }
+
+    pub fn select(mut self, i: Option<usize>) -> Self {
+        self.sel.select(i);
+        self
+    }
+
+    /// Enable j/k as up/down
+    /// The caller should avoid using these characters as option
+    pub fn vim_key(mut self, enable: bool) -> Self {
+        self.vim_key = enable;
+        self
+    }
+}
+
+impl Popup for Menu {
+    fn handler(&mut self, event: &crate::ui::tui::Event) -> Option<Action> {
+        if let tui::Event::Key(event) = event {
+            for (option, key) in self
+                .opts
+                .iter()
+                .filter_map(|(opt, key)| key.map(|k| (opt, k)))
+            {
+                if event.code == KeyCode::Char(key) {
+                    return Some(Action::PopupReturn(self.id.clone(), Some(option.clone())));
+                }
+            }
+
+            match event.code {
+                KeyCode::Up => {
+                    self.sel.select_previous();
+                }
+                KeyCode::Down => {
+                    self.sel.select_next();
+                }
+                KeyCode::Enter => {
+                    if let Some((opt, _)) = self.sel.selected().and_then(|i| self.opts.get(i)) {
+                        return Some(Action::PopupReturn(self.id.clone(), Some(opt.clone())));
+                    }
+                }
+                KeyCode::Esc => {
+                    return Some(Action::PopupReturn(self.id.clone(), None));
+                }
+                KeyCode::Char('j') if self.vim_key => {
+                    self.sel.select_next();
+                }
+                KeyCode::Char('k') if self.vim_key => {
+                    self.sel.select_previous();
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn render(&mut self, frame: &mut Frame) {
+        let hor = Constraint::Length(
+            self.opts
+                .iter()
+                .map(|(o, _)| o.len() + 6)
+                .max()
+                .unwrap_or(2) as u16,
+        );
+        let ver = Constraint::Length((self.opts.len() + 2) as u16);
+        let (area, buf) = self.prepare(frame, hor, ver);
+
+        let list_items = self.opts.iter().map(|(o, k)| {
+            let key_indicator = if let Some(key) = k {
+                Span::from(format!("{key} ")).fg(Color::Red)
+            } else {
+                Span::from("  ")
+            };
+            let text = Line::from(vec![
+                Span::from(" "),
+                key_indicator,
+                Span::from(o),
+                Span::from(" "),
+            ]);
+            ListItem::new(text)
+        });
+
+        StatefulWidget::render(
+            List::new(list_items)
+                .block(
+                    Block::bordered()
+                        .border_type(ratatui::widgets::BorderType::Rounded)
+                        .title(self.title.as_str()),
+                )
+                .highlight_style(Style::default().bg(Color::Blue)),
+            area,
+            buf,
+            &mut self.sel,
+        );
+    }
+}
+
 pub fn start_tui(lhs: PathBuf, rhs: PathBuf) -> Result<(), DiffTuiError> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_time()
@@ -242,13 +424,15 @@ pub fn start_tui(lhs: PathBuf, rhs: PathBuf) -> Result<(), DiffTuiError> {
         .unwrap();
     rt.block_on(async move {
         let mut app = App {
-            folder_cmp_state: FolderCmpState::new(lhs, rhs).unwrap(),
+            tabs: vec![Box::new(FolderCmpState::new(lhs, rhs)?)],
+            current_tab: 0,
             should_quit: false,
             popup: None,
             showing_notify: None,
         };
         app.run().await.unwrap();
-    });
+        Ok::<(), DiffTuiError>(())
+    })?;
     Ok(())
 }
 

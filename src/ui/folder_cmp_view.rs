@@ -10,8 +10,9 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Spacing},
-    widgets::{Block, Clear, ListState, StatefulWidget, Widget as _},
+    buffer::Buffer,
+    layout::{Constraint, Direction, Layout, Rect, Spacing},
+    widgets::{Block, ListState, StatefulWidget, Widget as _},
 };
 use ratatui_textarea::{CursorMove, TextArea};
 use tracing::{error, trace};
@@ -20,7 +21,7 @@ use crate::{
     DiffTuiError,
     diff::{DiffSide, dir::DirDiffTree},
     ui::{
-        Action, EventHandler, Notification, Popup, TuiTerminal,
+        Action, EventHandler, Menu, Notification, Popup, TabState, TuiTerminal,
         folder_view::{FolderView, FolderViewState},
         loading_msg::{LoadingMsg, LoadingMsgState},
         run_ext_tui_app, tui,
@@ -223,51 +224,97 @@ impl EventHandler for FolderCmpState {
             }
             Action::PopupReturn(id, body) => {
                 if id == FilterPopup::ID_FILTER_CONFIRMED {
-                    let mut glob_builder = GlobSetBuilder::new();
-                    let lines: Vec<String> = body.lines().map(|s| s.to_string()).collect();
+                    if let Some(body) = body {
+                        let mut glob_builder = GlobSetBuilder::new();
+                        let lines: Vec<String> = body.lines().map(|s| s.to_string()).collect();
 
-                    for line in lines.iter() {
-                        let line = line.trim();
-                        if line.is_empty() {
-                            continue;
+                        for line in lines.iter() {
+                            let line = line.trim();
+                            if line.is_empty() {
+                                continue;
+                            }
+                            let glob = match Glob::new(line) {
+                                Ok(g) => g,
+                                Err(e) => {
+                                    return Ok(Some(Action::Notification(Notification {
+                                        title: "Error".to_string(),
+                                        body: format!("Parsing glob failed: {e}"),
+                                    })));
+                                }
+                            };
+                            glob_builder.add(glob);
                         }
-                        let glob = match Glob::new(line) {
-                            Ok(g) => g,
+                        let filters = match glob_builder.build() {
+                            Ok(f) => f,
                             Err(e) => {
                                 return Ok(Some(Action::Notification(Notification {
                                     title: "Error".to_string(),
-                                    body: format!("Parsing glob failed: {e}"),
+                                    body: format!("Build glob set failed: {e}"),
                                 })));
                             }
                         };
-                        glob_builder.add(glob);
+                        self.filter_text = lines;
+                        self.set_filters(filters);
                     }
-                    let filters = match glob_builder.build() {
-                        Ok(f) => f,
-                        Err(e) => {
-                            return Ok(Some(Action::Notification(Notification {
-                                title: "Error".to_string(),
-                                body: format!("Build glob set failed: {e}"),
-                            })));
-                        }
-                    };
-                    self.filter_text = lines;
-                    self.set_filters(filters);
                     return Ok(None);
+                } else if id == "Open" {
+                    if let Some(body) = body {
+                        match body.as_str() {
+                            "neovim diff" => {
+                                if let Some((lhs, rhs)) = self
+                                    .lhs_state
+                                    .selected_path()
+                                    .zip(self.rhs_state.selected_path())
+                                {
+                                    let lhs_path = self.lhs_path.join(lhs);
+                                    let rhs_path = self.rhs_path.join(rhs);
+                                    let mut cmd = std::process::Command::new("nvim");
+                                    cmd.arg("-d").arg(lhs_path).arg(rhs_path);
+                                    run_ext_tui_app(&mut cmd, terminal)?;
+                                }
+                                return Ok(None);
+                            }
+                            "new tab" => {
+                                if let Some((lhs, rhs)) = self
+                                    .lhs_state
+                                    .selected_path()
+                                    .zip(self.rhs_state.selected_path())
+                                {
+                                    let lhs = self.lhs_path.join(lhs);
+                                    let rhs = self.rhs_path.join(rhs);
+                                    return Ok(Some(Action::CreateTabAndSwitch(Box::new(
+                                        FolderCmpState::new(lhs, rhs)?,
+                                    ))));
+                                }
+                            }
+                            _ => {
+                                return Ok(Some(Action::Notification(Notification {
+                                    title: "Unknown option".to_string(),
+                                    body: format!("Unknown body: {body}"),
+                                })));
+                            }
+                        }
+                    }
                 }
             }
-            Action::LauchExtCompare => {
+            Action::Open => {
+                let mut options = vec![("neovim diff".to_string(), Some('n'))];
                 if let Some((lhs, rhs)) = self
                     .lhs_state
                     .selected_path()
                     .zip(self.rhs_state.selected_path())
                 {
-                    let lhs_path = self.lhs_path.join(lhs);
-                    let rhs_path = self.rhs_path.join(rhs);
-                    let mut cmd = std::process::Command::new("nvim");
-                    cmd.arg("-d").arg(lhs_path).arg(rhs_path);
-                    run_ext_tui_app(&mut cmd, terminal)?;
+                    let lhs = self.lhs_path.join(lhs);
+                    let rhs = self.rhs_path.join(rhs);
+                    if lhs.metadata().is_ok_and(|meta| meta.is_dir())
+                        && rhs.metadata().is_ok_and(|meta| meta.is_dir())
+                    {
+                        options.push(("new tab".to_string(), Some('t')))
+                    }
                 }
+                return Ok(Some(Action::ShowPopup(Box::new(
+                    Menu::new("Open".to_string(), options).vim_key(true).select(Some(0)),
+                ))));
             }
             _ => {}
         }
@@ -394,14 +441,31 @@ impl EventHandler for FolderCmpState {
     }
 }
 
+impl TabState for FolderCmpState {
+    fn title(&self) -> String {
+        let lhs = self
+            .lhs_path
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or(String::from("<LEFT>"));
+        let rhs = self
+            .rhs_path
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or(String::from("<RIGHT>"));
+        format!("{}<->{}", lhs, rhs)
+    }
+
+    fn render(&mut self, area: Rect, buf: &mut Buffer) {
+        FolderCmpView::default().render(area, buf, self);
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct FolderCmpView;
 
 impl FolderCmpView {
-    pub fn render(&self, frame: &mut Frame, state: &mut FolderCmpState) {
-        let area = frame.area();
-        let buf = frame.buffer_mut();
-
+    pub fn render(&self, area: Rect, buf: &mut Buffer, state: &mut FolderCmpState) {
         if state.loading_tree.is_some() {
             let center_area = area.centered_vertically(Constraint::Length(1));
             LoadingMsg::new("Loading file tree").render(
@@ -476,6 +540,7 @@ impl<'ta> FilterPopup<'ta> {
         };
         default_text_area.set_block(
             Block::bordered()
+                .border_type(ratatui::widgets::BorderType::Rounded)
                 .title("Filters")
                 .title_bottom("<ESC> to cancel / <Ctrl-S> to confirm"),
         );
@@ -489,12 +554,12 @@ impl<'ta> Popup for FilterPopup<'ta> {
             if key_evt.modifiers == KeyModifiers::CONTROL && key_evt.code == KeyCode::Char('s') {
                 return Some(Action::PopupReturn(
                     Self::ID_FILTER_CONFIRMED.to_string(),
-                    self.text.lines().join("\n"),
+                    Some(self.text.lines().join("\n")),
                 ));
             } else if key_evt.code == KeyCode::Esc {
                 return Some(Action::PopupReturn(
                     Self::ID_FILTER_CENCELED.to_string(),
-                    self.text.lines().join("\n"),
+                    Some(self.text.lines().join("\n")),
                 ));
             } else if key_evt.code == KeyCode::Char('d')
                 && key_evt.modifiers == KeyModifiers::CONTROL
@@ -513,13 +578,13 @@ impl<'ta> Popup for FilterPopup<'ta> {
         return None;
     }
 
-    fn render(&self, frame: &mut Frame) {
-        let area = frame.area();
-        let buf = frame.buffer_mut();
-        let popup_area = area.centered(Constraint::Percentage(50), Constraint::Percentage(50));
-
-        Clear::default().render(popup_area, buf);
-        self.text.render(popup_area, buf);
+    fn render(&mut self, frame: &mut Frame) {
+        let (area, buf) = self.prepare(
+            frame,
+            Constraint::Percentage(50),
+            Constraint::Percentage(50),
+        );
+        self.text.render(area, buf);
     }
 }
 
