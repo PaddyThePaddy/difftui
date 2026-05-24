@@ -13,6 +13,7 @@ use ratatui::{
     symbols::merge::MergeStrategy,
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, StatefulWidget, Widget},
 };
+use tracing::trace;
 
 use crate::{
     diff::{DiffSide, DiffState, dir::DirDiffTree},
@@ -243,14 +244,18 @@ impl<'a> FolderView<'a> {
                     .to_string_lossy()
                     .as_ref(),
             );
-            let list_item =
-                ListItem::from(item_str[min(horizontal_scroll, item_str.len())..].to_string())
-                    .style(match ds {
-                        DiffState::Unknown => NORMAL_LIST_STYLE.clone(),
-                        DiffState::Orphan(_) => ORPHAN_LIST_STYLE.clone(),
-                        DiffState::Different => DIFF_LIST_STYLE.clone(),
-                        DiffState::Same => SAME_LIST_STYLE.clone(),
-                    });
+            let scroll_point = item_str
+                .char_indices()
+                .nth(horizontal_scroll)
+                .map(|(i, _)| i)
+                .unwrap_or(item_str.len());
+            let list_item = ListItem::from(item_str[scroll_point..].to_string()).style(match ds {
+                DiffState::Unknown => NORMAL_LIST_STYLE.clone(),
+                DiffState::Orphan(_) => ORPHAN_LIST_STYLE.clone(),
+                DiffState::Different => DIFF_LIST_STYLE.clone(),
+                DiffState::Same => SAME_LIST_STYLE.clone(),
+            });
+            trace!("Built list item");
 
             list.push(list_item);
         }
