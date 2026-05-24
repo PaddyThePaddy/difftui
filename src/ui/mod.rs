@@ -344,5 +344,8 @@ pub fn run_ext_tui_app(
     }
     enable_raw_mode()?;
     terminal.clear()?;
+    while crossterm::event::poll(Duration::from_millis(10))? {
+        let _ = crossterm::event::read()?;
+    }
     Ok(())
 }
