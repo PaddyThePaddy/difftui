@@ -52,6 +52,7 @@ pub enum Action {
     CreateTabAndSwitch(Box<dyn TabState>),
     NextTab,
     PrevTab,
+    CloseTab,
 }
 
 impl TryFrom<&Event> for Action {
@@ -85,7 +86,7 @@ impl TryFrom<KeyEvent> for Action {
                 KeyCode::Char('k') | KeyCode::Up => Ok(Self::NavUp),
                 KeyCode::Char('h') | KeyCode::Left => Ok(Self::NavLeft),
                 KeyCode::Char('l') | KeyCode::Right => Ok(Self::NavRight),
-                KeyCode::Char('q') => Ok(Self::ExitApp(None)),
+                KeyCode::Char('q') => Ok(Self::CloseTab),
                 KeyCode::Char('c') => Ok(Self::CompareSelected),
                 KeyCode::Char('a') => Ok(Self::CompareAll),
                 KeyCode::Char('o') => Ok(Self::Open),
@@ -231,6 +232,16 @@ impl App {
             Action::CreateTabAndSwitch(new_tab) => {
                 self.tabs.push(new_tab);
                 self.current_tab = self.tabs.len() - 1;
+                return Ok(None);
+            }
+            Action::CloseTab => {
+                self.tabs.remove(self.current_tab);
+                if self.tabs.is_empty() {
+                    return Ok(Some(Action::ExitApp(Some("All tab closed".to_string()))));
+                }
+                if self.current_tab >= self.tabs.len() {
+                    self.current_tab = self.tabs.len() - 1;
+                }
                 return Ok(None);
             }
             _ => {
