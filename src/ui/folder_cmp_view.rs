@@ -256,6 +256,19 @@ impl EventHandler for FolderCmpState {
                     return Ok(None);
                 }
             }
+            Action::LauchExtCompare => {
+                if let Some((lhs, rhs)) = self
+                    .lhs_state
+                    .selected_path()
+                    .zip(self.rhs_state.selected_path())
+                {
+                    let lhs_path = self.lhs_path.join(lhs);
+                    let rhs_path = self.rhs_path.join(rhs);
+                    let mut cmd = std::process::Command::new("nvim");
+                    cmd.arg("-d").arg(lhs_path).arg(rhs_path);
+                    run_ext_tui_app(&mut cmd, terminal)?;
+                }
+            }
             _ => {}
         }
 
@@ -325,15 +338,6 @@ impl EventHandler for FolderCmpState {
                             }));
                         }
                     }
-                    Action::LauchExtCompare => {
-                        if let Some(selected_path) = self.lhs_state.selected_path() {
-                            let lhs_path = self.lhs_path.join(selected_path);
-                            let rhs_path = self.rhs_path.join(selected_path);
-                            let mut cmd = std::process::Command::new("nvim");
-                            cmd.arg("-d").arg(lhs_path).arg(rhs_path);
-                            run_ext_tui_app(&mut cmd, terminal)?;
-                        }
-                    }
                     Action::NavLeft => {
                         self.horizontal_scroll = self.horizontal_scroll.saturating_sub(1);
                         self.lhs_state.set_horizontal_scroll(self.horizontal_scroll);
@@ -344,13 +348,47 @@ impl EventHandler for FolderCmpState {
                         self.lhs_state.set_horizontal_scroll(self.horizontal_scroll);
                         self.rhs_state.set_horizontal_scroll(self.horizontal_scroll);
                     }
+                    Action::ToggleCoupling => {
+                        self.focus = FocusState::FocusOn(DiffSide::Left);
+                    }
                     _ => {}
                 }
                 Ok(None)
             }
-            FocusState::FocusOn(diff_side) => match diff_side {
-                DiffSide::Left => self.lhs_state.handler(event, terminal),
-                DiffSide::Right => self.rhs_state.handler(event, terminal),
+            FocusState::FocusOn(diff_side) => match event {
+                Action::ToggleCoupling => {
+                    self.focus = FocusState::Synced(match diff_side {
+                        DiffSide::Left => self.lhs_state.selected(),
+                        DiffSide::Right => self.rhs_state.selected(),
+                    });
+                    *self.rhs_state.selected_mut() = self.lhs_state.selected();
+                    Ok(None)
+                }
+                Action::NavLeft => {
+                    self.focus = FocusState::FocusOn(DiffSide::Left);
+                    Ok(None)
+                }
+                Action::NavRight => {
+                    self.focus = FocusState::FocusOn(DiffSide::Right);
+                    Ok(None)
+                }
+                Action::ToggleSelected => {
+                    if let Some(selected_p) = match diff_side {
+                        DiffSide::Left => self.lhs_state.selected_path(),
+                        DiffSide::Right => self.rhs_state.selected_path(),
+                    } {
+                        if self.expanded_pathes.contains(selected_p) {
+                            self.expanded_pathes.remove(selected_p);
+                        } else {
+                            self.expanded_pathes.insert(selected_p.clone());
+                        }
+                    }
+                    Ok(None)
+                }
+                _ => match diff_side {
+                    DiffSide::Left => self.lhs_state.handler(event, terminal),
+                    DiffSide::Right => self.rhs_state.handler(event, terminal),
+                },
             },
         }
     }

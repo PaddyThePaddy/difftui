@@ -39,8 +39,7 @@ pub enum Action {
     CollapseSelected,
     ToggleSelected,
     LauchExtCompare,
-    UncoupleFolders,
-    RecoupleFolders,
+    ToggleCoupling,
     OpenSelectedInNewTab,
     ExitApp(Option<String>),
     CompareSelected,
@@ -88,6 +87,7 @@ impl TryFrom<KeyEvent> for Action {
                 KeyCode::Char('o') => Ok(Self::LauchExtCompare),
                 KeyCode::Char('g') => Ok(Self::NavTop),
                 KeyCode::Char('/') => Ok(Self::PopupFilter),
+                KeyCode::Char('=') => Ok(Self::ToggleCoupling),
                 KeyCode::Enter => Ok(Self::ToggleSelected),
                 _ => Err(()),
             }
