@@ -18,6 +18,7 @@ pub struct TextCmpView<'a> {
     rhs_path: PathBuf,
     diff: TextDiff<'a, 'a, str>,
     sel: ListState,
+    horzontal_scroll: usize,
 }
 
 impl<'a> Debug for TextCmpView<'a> {
@@ -39,6 +40,7 @@ impl<'a> TextCmpView<'a> {
             rhs_path: rhs,
             diff,
             sel: ListState::default().with_selected(Some(0)),
+            horzontal_scroll: 0,
         })
     }
 
@@ -70,6 +72,8 @@ impl<'a> EventHandler for TextCmpView<'a> {
         match event {
             Action::NavDown => self.sel.select_next(),
             Action::NavUp => self.sel.select_previous(),
+            Action::NavRight => self.horzontal_scroll = self.horzontal_scroll.saturating_add(1),
+            Action::NavLeft => self.horzontal_scroll = self.horzontal_scroll.saturating_sub(1),
             Action::NavTop => self.sel.select_first(),
             Action::NavBottom => self.sel.select_last(),
             Action::NextDiff => {
@@ -141,12 +145,36 @@ impl<'a> TabState for TextCmpView<'a> {
                     rhs_list.push(empty_line.clone());
                 }
             }
+            let mut horizontal_scroll = self.horzontal_scroll;
             let text = change
                 .values()
                 .iter()
-                .map(|(hl, text)| {
-                    let span = Span::from(*text);
-                    if *hl { span.underlined() } else { span }
+                .filter_map(|(hl, text)| {
+                    if horizontal_scroll == 0 {
+                        let span = Span::from(*text);
+                        if *hl {
+                            Some(span.underlined())
+                        } else {
+                            Some(span)
+                        }
+                    } else {
+                        if let Some(scroll_point) =
+                            text.char_indices().nth(horizontal_scroll).map(|(i, _)| i)
+                        {
+                            horizontal_scroll =
+                                horizontal_scroll.saturating_sub(text.char_indices().count());
+                            let span = Span::from(&text[scroll_point..]);
+                            if *hl {
+                                Some(span.underlined())
+                            } else {
+                                Some(span)
+                            }
+                        } else {
+                            horizontal_scroll =
+                                horizontal_scroll.saturating_sub(text.char_indices().count());
+                            None
+                        }
+                    }
                 })
                 .collect::<Vec<_>>();
 
@@ -174,7 +202,7 @@ impl<'a> TabState for TextCmpView<'a> {
                 } else {
                     Color::default()
                 });
-                line.extend(text.clone());
+                line.extend(text);
 
                 rhs_list.push(line);
             }
