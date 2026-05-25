@@ -21,7 +21,13 @@ use crate::{
     DiffTuiError,
     diff::{DiffSide, dir::DirDiffTree},
     ui::{
-        Action, EventHandler, Notification, Popup, TabState, TuiTerminal, folder_view::{FolderView, FolderViewState}, loading_msg::{LoadingMsg, LoadingMsgState}, menu::Menu, run_ext_tui_app, text_cmp_view::TextCmpView, tui
+        Action, EventHandler, Notification, Popup, TabState, TuiTerminal,
+        folder_view::{FolderView, FolderViewState},
+        loading_msg::{LoadingMsg, LoadingMsgState},
+        menu::Menu,
+        run_ext_tui_app,
+        text_cmp_view::TextCmpView,
+        tui,
     },
 };
 
@@ -305,6 +311,47 @@ impl EventHandler for FolderCmpState {
                             }
                         }
                     }
+                } else if id == "Compare" {
+                    if let Some(body) = body {
+                        match body.as_str() {
+                            "Selected" => {
+                                if let Some(selected_p) = self.lhs_state.selected_path() {
+                                    if self.cmp_in_progress.is_some() {
+                                        error!("There is a comparison in progress");
+                                    } else {
+                                        let tree = self.tree.clone();
+                                        let p = selected_p.clone();
+                                        self.cmp_in_progress =
+                                            Some(std::thread::spawn(move || {
+                                                tree.cmp_node(&p)?;
+                                                return Ok::<(), DiffTuiError>(());
+                                            }));
+                                    }
+                                }
+                            }
+                            "All" => {
+                                if self.cmp_in_progress.is_some() {
+                                    error!("There is a comparison in progress");
+                                    return Ok(Some(Action::Notification(Notification {
+                                        title: "Abort".to_string(),
+                                        body: "There is a comparison in progress".to_string(),
+                                    })));
+                                } else {
+                                    let tree = if let Some(tree) = &self.filtered_tree {
+                                        trace!("Comparing filtered tree");
+                                        tree.clone()
+                                    } else {
+                                        self.tree.clone()
+                                    };
+                                    self.cmp_in_progress = Some(std::thread::spawn(move || {
+                                        tree.cmp_node(Path::new(""))?;
+                                        return Ok::<(), DiffTuiError>(());
+                                    }));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
                 }
             }
             Action::Open => {
@@ -328,7 +375,9 @@ impl EventHandler for FolderCmpState {
                     }
                 }
                 return Ok(Some(Action::ShowPopup(Box::new(
-                    Menu::new("Open".to_string(), options).vim_key(true).select(Some(0)),
+                    Menu::new("Open".to_string(), options)
+                        .vim_key(true)
+                        .select(Some(0)),
                 ))));
             }
             _ => {}
@@ -366,39 +415,14 @@ impl EventHandler for FolderCmpState {
                             }
                         }
                     }
-                    Action::CompareSelected => {
-                        if let Some(selected_p) = self.lhs_state.selected_path() {
-                            if self.cmp_in_progress.is_some() {
-                                error!("There is a comparison in progress");
-                            } else {
-                                let tree = self.tree.clone();
-                                let p = selected_p.clone();
-                                self.cmp_in_progress = Some(std::thread::spawn(move || {
-                                    tree.cmp_node(&p)?;
-                                    return Ok::<(), DiffTuiError>(());
-                                }));
-                            }
-                        }
-                    }
-                    Action::CompareAll => {
-                        if self.cmp_in_progress.is_some() {
-                            error!("There is a comparison in progress");
-                            return Ok(Some(Action::Notification(Notification {
-                                title: "Abort".to_string(),
-                                body: "There is a comparison in progress".to_string(),
-                            })));
-                        } else {
-                            let tree = if let Some(tree) = &self.filtered_tree {
-                                trace!("Comparing filtered tree");
-                                tree.clone()
-                            } else {
-                                self.tree.clone()
-                            };
-                            self.cmp_in_progress = Some(std::thread::spawn(move || {
-                                tree.cmp_node(Path::new(""))?;
-                                return Ok::<(), DiffTuiError>(());
-                            }));
-                        }
+                    Action::Compare => {
+                        return Ok(Some(Action::ShowPopup(Box::new(Menu::new(
+                            "Compare".to_string(),
+                            vec![
+                                ("Selected".to_string(), Some('c')),
+                                ("All".to_string(), Some('a')),
+                            ],
+                        )))));
                     }
                     Action::NavLeft => {
                         self.horizontal_scroll = self.horizontal_scroll.saturating_sub(1);
