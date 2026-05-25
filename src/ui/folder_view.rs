@@ -16,7 +16,7 @@ use tracing::trace;
 
 use crate::{
     diff::{DiffSide, DiffState, dir::DirDiffTree},
-    ui::{Action, EventHandler},
+    ui::{Action, EventHandler, Notification},
 };
 
 #[derive(Debug, Clone)]
@@ -112,10 +112,14 @@ impl FolderViewState {
 
     pub fn selected_path(&self) -> Option<&PathBuf> {
         if let Some(idx) = self.selected().selected() {
-            self.items_full_name.get(idx)
+            self.get_item_full_name(idx)
         } else {
             None
         }
+    }
+
+    pub fn get_item_full_name(&self, idx: usize) -> Option<&PathBuf> {
+        self.items_full_name.get(idx)
     }
 
     pub fn horizontal_scroll(&self) -> usize {
@@ -137,6 +141,51 @@ impl EventHandler for FolderViewState {
             Action::NavUp => self.selection.scroll_up_by(1),
             Action::NavDown => self.selection.scroll_down_by(1),
             Action::ToggleSelected => self.toggle_selected(),
+            Action::NextDiff => {
+                if let Some(selected) = self.selection.selected() {
+                    let mut next = selected + 1;
+                    let mut changed = false;
+                    while let Some(p) = self.get_item_full_name(next) {
+                        let state = self.tree.get_diff_state(p);
+                        if state != DiffState::Same && state != DiffState::Unknown {
+                            self.selection.select(Some(next));
+                            changed = true;
+                            break;
+                        }
+                        next += 1;
+                    }
+                    if !changed {
+                        return Ok(Some(Action::Notification(Notification {
+                            title: "Next diff".to_string(),
+                            body: "Reached last diff".to_string(),
+                        })));
+                    }
+                }
+            }
+            Action::PrevDiff => {
+                if let Some(selected) = self.selection.selected() {
+                    let mut prev = selected.saturating_sub(1);
+                    let mut changed = false;
+                    while let Some(p) = self.get_item_full_name(prev) {
+                        let state = self.tree.get_diff_state(p);
+                        if state != DiffState::Same && state != DiffState::Unknown {
+                            self.selection.select(Some(prev));
+                            changed = true;
+                            break;
+                        }
+                        if prev == 0 {
+                            break;
+                        }
+                        prev = prev.saturating_sub(1);
+                    }
+                    if !changed {
+                        return Ok(Some(Action::Notification(Notification {
+                            title: "Previous diff".to_string(),
+                            body: "Reached first diff".to_string(),
+                        })));
+                    }
+                }
+            }
             _ => {}
         }
         Ok(None)

@@ -19,7 +19,7 @@ use tracing::{error, trace};
 
 use crate::{
     DiffTuiError,
-    diff::{DiffSide, dir::DirDiffTree},
+    diff::{DiffSide, DiffState, dir::DirDiffTree},
     ui::{
         Action, EventHandler, Notification, Popup, TabState,
         folder_view::{FolderView, FolderViewState},
@@ -431,6 +431,55 @@ impl EventHandler for FolderCmpState {
                     }
                     Action::ToggleCoupling => {
                         self.focus = FocusState::FocusOn(DiffSide::Left);
+                    }
+                    Action::NextDiff => {
+                        if let Some(selected) = list_state.selected() {
+                            let mut next = selected + 1;
+                            let mut changed = false;
+                            while let Some(p) = self.lhs_state.get_item_full_name(next) {
+                                let state = self.tree.get_diff_state(p);
+                                if state != DiffState::Same && state != DiffState::Unknown {
+                                    list_state.select(Some(next));
+                                    *self.lhs_state.selected_mut() = *list_state;
+                                    *self.rhs_state.selected_mut() = *list_state;
+                                    changed = true;
+                                    break;
+                                }
+                                next += 1;
+                            }
+                            if !changed {
+                                return Ok(Some(Action::Notification(Notification {
+                                    title: "Next diff".to_string(),
+                                    body: "Reached last diff".to_string(),
+                                })));
+                            }
+                        }
+                    }
+                    Action::PrevDiff => {
+                        if let Some(selected) = list_state.selected() {
+                            let mut prev = selected.saturating_sub(1);
+                            let mut changed = false;
+                            while let Some(p) = self.lhs_state.get_item_full_name(prev) {
+                                let state = self.tree.get_diff_state(p);
+                                if state != DiffState::Same && state != DiffState::Unknown {
+                                    list_state.select(Some(prev));
+                                    *self.lhs_state.selected_mut() = *list_state;
+                                    *self.rhs_state.selected_mut() = *list_state;
+                                    changed = true;
+                                    break;
+                                }
+                                if prev == 0 {
+                                    break;
+                                }
+                                prev = prev.saturating_sub(1);
+                            }
+                            if !changed {
+                                return Ok(Some(Action::Notification(Notification {
+                                    title: "Previous diff".to_string(),
+                                    body: "Reached first diff".to_string(),
+                                })));
+                            }
+                        }
                     }
                     _ => {}
                 }
