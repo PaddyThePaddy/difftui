@@ -56,6 +56,7 @@ pub enum Action {
     CloseTab,
     NextDiff,
     PrevDiff,
+    ShowHelp,
 }
 
 impl TryFrom<&Event> for Action {
@@ -99,6 +100,7 @@ impl TryFrom<KeyEvent> for Action {
                 KeyCode::Tab => Ok(Self::NextTab),
                 KeyCode::Char(']') => Ok(Self::NextDiff),
                 KeyCode::Char('[') => Ok(Self::PrevDiff),
+                KeyCode::Char('?') | KeyCode::F(1) => Ok(Self::ShowHelp),
                 _ => Err(()),
             }
         } else {
@@ -247,6 +249,26 @@ impl App {
             Action::RunExtApp(mut cmd) => {
                 let return_code = run_ext_tui_app(&mut cmd, terminal)?;
                 return Ok(Some(Action::ExtAppReturn(return_code)));
+            }
+            Action::ShowHelp => {
+                return Ok(Some(Action::Notification(Notification {
+                    title: "Help".to_string(),
+                    body: vec![
+                        "Arrow keys / hjkl => Navigation",
+                        "q        => Closet tab",
+                        "c        => Compare selected file/folder",
+                        "o        => Open selected filde / folder",
+                        "g        => Move to top",
+                        "G        => Move to bottom",
+                        "/        => Filter files",
+                        "][       => Next/Previous difference",
+                        "=        => Decouple side-by-side view",
+                        "Enter    => Expand/Collapse",
+                        "Ctrl + c => Exit app",
+                        "? / F1   => Show help",
+                    ]
+                    .join("\n"),
+                })));
             }
             _ => {
                 if let Some(tab) = self.tabs.get_mut(self.current_tab) {
