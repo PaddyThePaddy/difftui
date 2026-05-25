@@ -223,6 +223,7 @@ impl<'a> TabState for TextCmpView<'a> {
         .spacing(Spacing::Overlap(1));
         let [lhs_area, rhs_area] = area.layout(&layout);
         List::new(lhs_list)
+            .scroll_padding(5)
             .highlight_style(Style::default().on_dark_gray())
             .block(
                 Block::bordered()
@@ -231,6 +232,7 @@ impl<'a> TabState for TextCmpView<'a> {
             )
             .render(lhs_area, buf, &mut self.sel);
         List::new(rhs_list)
+            .scroll_padding(5)
             .highlight_style(Style::default().on_dark_gray())
             .block(
                 Block::bordered()
