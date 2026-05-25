@@ -1,10 +1,11 @@
 use std::{cmp::max, fmt::Debug, path::PathBuf};
 
 use ratatui::{
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Spacing},
     style::{Color, Style, Stylize},
+    symbols::merge::MergeStrategy,
     text::{Line, Span},
-    widgets::{Block, List, ListState, StatefulWidget},
+    widgets::{Block, Borders, List, ListState, StatefulWidget},
 };
 use similar::{ChangeTag, TextDiff};
 
@@ -218,15 +219,24 @@ impl<'a> TabState for TextCmpView<'a> {
         let layout = Layout::new(
             Direction::Horizontal,
             [Constraint::Fill(1), Constraint::Fill(1)],
-        );
+        )
+        .spacing(Spacing::Overlap(1));
         let [lhs_area, rhs_area] = area.layout(&layout);
         List::new(lhs_list)
             .highlight_style(Style::default().on_dark_gray())
-            .block(Block::bordered())
+            .block(
+                Block::bordered()
+                    .borders(Borders::all())
+                    .merge_borders(MergeStrategy::Exact),
+            )
             .render(lhs_area, buf, &mut self.sel);
         List::new(rhs_list)
             .highlight_style(Style::default().on_dark_gray())
-            .block(Block::bordered())
+            .block(
+                Block::bordered()
+                    .borders(Borders::all())
+                    .merge_borders(MergeStrategy::Exact),
+            )
             .render(rhs_area, buf, &mut self.sel);
     }
 }
