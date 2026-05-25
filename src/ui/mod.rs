@@ -237,7 +237,7 @@ impl App {
             Action::CloseTab => {
                 self.tabs.remove(self.current_tab);
                 if self.tabs.is_empty() {
-                    return Ok(Some(Action::ExitApp(Some("All tab closed".to_string()))));
+                    return Ok(Some(Action::ExitApp(Some("All tabs closed".to_string()))));
                 }
                 if self.current_tab >= self.tabs.len() {
                     self.current_tab = self.tabs.len() - 1;
