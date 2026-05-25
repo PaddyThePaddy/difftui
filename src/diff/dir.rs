@@ -129,6 +129,8 @@ impl DirDiffTree {
         trace!("Walkers joined");
 
         for node in tree.values_mut() {
+            node.children.sort();
+            node.children_non_dir.sort();
             node.children.extend(node.children_non_dir.iter().cloned());
             node.children_non_dir.clear();
         }
