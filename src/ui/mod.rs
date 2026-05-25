@@ -269,7 +269,11 @@ impl App {
                 if let tui::Event::Render = evt {
                     tui.draw(|f| {
                         trace!("Render cycle starts");
+                        #[cfg(debug_assertions)]
+                        let render_start = std::time::Instant::now();
                         self.render(f);
+                        #[cfg(debug_assertions)]
+                        trace!("Render took {:?}", std::time::Instant::now() - render_start);
                         trace!("Render cycle completed");
                         tui::render_complete();
                     })?;
