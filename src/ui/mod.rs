@@ -54,6 +54,8 @@ pub enum Action {
     NextTab,
     PrevTab,
     CloseTab,
+    NextDiff,
+    PrevDiff,
 }
 
 impl TryFrom<&Event> for Action {
@@ -95,6 +97,8 @@ impl TryFrom<KeyEvent> for Action {
                 KeyCode::Char('=') => Ok(Self::ToggleCoupling),
                 KeyCode::Enter => Ok(Self::ToggleSelected),
                 KeyCode::Tab => Ok(Self::NextTab),
+                KeyCode::Char(']') => Ok(Self::NextDiff),
+                KeyCode::Char('[') => Ok(Self::PrevDiff),
                 _ => Err(()),
             }
         } else {

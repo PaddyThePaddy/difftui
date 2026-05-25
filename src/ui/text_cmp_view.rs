@@ -1,4 +1,4 @@
-use std::{fmt::Debug, path::PathBuf};
+use std::{cmp::max, fmt::Debug, path::PathBuf};
 
 use ratatui::{
     layout::{Constraint, Direction, Layout},
@@ -10,7 +10,7 @@ use similar::{ChangeTag, TextDiff};
 
 use crate::{
     DiffTuiError,
-    ui::{Action, EventHandler, TabState},
+    ui::{Action, EventHandler, Notification, TabState},
 };
 
 pub struct TextCmpView<'a> {
@@ -41,6 +41,28 @@ impl<'a> TextCmpView<'a> {
             sel: ListState::default().with_selected(Some(0)),
         })
     }
+
+    fn diff_hunks(&self) -> Vec<(usize, usize)> {
+        let mut list: Vec<(usize, usize)> = vec![];
+
+        for change in self.diff.iter_all_changes() {
+            if change.tag() == ChangeTag::Equal {
+                continue;
+            }
+            let idx = max(
+                change.old_index().unwrap_or(0),
+                change.new_index().unwrap_or(0),
+            );
+
+            if let Some(last_hunk) = list.last_mut().filter(|h| h.1 == idx) {
+                last_hunk.1 = idx + 1;
+            } else {
+                list.push((idx, idx + 1));
+            }
+        }
+
+        return list;
+    }
 }
 
 impl<'a> EventHandler for TextCmpView<'a> {
@@ -48,6 +70,36 @@ impl<'a> EventHandler for TextCmpView<'a> {
         match event {
             Action::NavDown => self.sel.select_next(),
             Action::NavUp => self.sel.select_previous(),
+            Action::NavTop => self.sel.select_first(),
+            Action::NavBottom => self.sel.select_last(),
+            Action::NextDiff => {
+                if let Some(current_ln) = self.sel.selected() {
+                    let diff_hunks = self.diff_hunks();
+
+                    if let Some(next_hunk) = diff_hunks.iter().find(|h| h.0 > current_ln) {
+                        self.sel.select(Some(next_hunk.0));
+                    } else {
+                        return Ok(Some(Action::Notification(Notification {
+                            title: "Next diff".to_string(),
+                            body: "Reached last diff".to_string(),
+                        })));
+                    }
+                }
+            }
+            Action::PrevDiff => {
+                if let Some(current_ln) = self.sel.selected() {
+                    let diff_hunks = self.diff_hunks();
+
+                    if let Some(prev_hunk) = diff_hunks.iter().rev().find(|h| h.1 < current_ln) {
+                        self.sel.select(Some(prev_hunk.0));
+                    } else {
+                        return Ok(Some(Action::Notification(Notification {
+                            title: "Previous diff".to_string(),
+                            body: "Reached first diff".to_string(),
+                        })));
+                    }
+                }
+            }
             _ => {}
         }
         Ok(None)
@@ -60,39 +112,79 @@ impl<'a> TabState for TextCmpView<'a> {
     }
 
     fn render(&mut self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer) {
+        // TODO: Can we cache inline_diff so we don't need to build it for every frame?
+        let inline_diff = self.diff.iter_all_inline_changes().collect::<Vec<_>>();
         let mut lhs_list = vec![];
         let mut rhs_list = vec![];
-        for change in self.diff.iter_all_inline_changes() {
+        let empty_line_len = (area.width + 1) / 2 - 2;
+        let mut empty_line_str = String::new();
+
+        for _ in 0..empty_line_len {
+            empty_line_str.push('-');
+        }
+
+        let empty_line = Line::from(empty_line_str.as_str()).dim().red();
+
+        let max_ln = inline_diff
+            .iter()
+            .map(|c| max(c.old_index().unwrap_or(0), c.new_index().unwrap_or(0)))
+            .max()
+            .unwrap_or(0);
+        let ln_space = max_ln.to_string().len();
+
+        for change in inline_diff.iter() {
             if change.tag() == ChangeTag::Equal {
                 while lhs_list.len() < rhs_list.len() {
-                    lhs_list.push(Line::default().crossed_out());
+                    lhs_list.push(empty_line.clone());
                 }
                 while lhs_list.len() > rhs_list.len() {
-                    rhs_list.push(Line::default().crossed_out());
+                    rhs_list.push(empty_line.clone());
                 }
             }
-            let line = Line::from_iter(change.values().iter().map(|(hl, text)| {
-                let span = Span::from(*text);
-                if *hl { span.underlined() } else { span }
-            }))
-            .fg(if change.tag() != ChangeTag::Equal {
-                Color::Red
-            } else {
-                Color::default()
-            });
+            let text = change
+                .values()
+                .iter()
+                .map(|(hl, text)| {
+                    let span = Span::from(*text);
+                    if *hl { span.underlined() } else { span }
+                })
+                .collect::<Vec<_>>();
 
-            if change.old_index().is_some() {
-                lhs_list.push(line.clone());
+            if let Some(ln) = change.old_index() {
+                let mut line = Line::from_iter([
+                    Span::from(format!("{:1$}", ln, ln_space)).dim(),
+                    Span::from(" │ ").dim(),
+                ])
+                .fg(if change.tag() != ChangeTag::Equal {
+                    Color::Red
+                } else {
+                    Color::default()
+                });
+                line.extend(text.clone());
+
+                lhs_list.push(line);
             }
-            if change.new_index().is_some() {
-                rhs_list.push(line.clone());
+            if let Some(ln) = change.new_index() {
+                let mut line = Line::from_iter([
+                    Span::from(format!("{:1$}", ln, ln_space)).dim(),
+                    Span::from(" │ ").dim(),
+                ])
+                .fg(if change.tag() != ChangeTag::Equal {
+                    Color::Red
+                } else {
+                    Color::default()
+                });
+                line.extend(text.clone());
+
+                rhs_list.push(line);
             }
         }
+
         while lhs_list.len() < rhs_list.len() {
-            lhs_list.push(Line::default().crossed_out());
+            lhs_list.push(empty_line.clone());
         }
         while lhs_list.len() > rhs_list.len() {
-            rhs_list.push(Line::default().crossed_out());
+            rhs_list.push(empty_line.clone());
         }
 
         let layout = Layout::new(
