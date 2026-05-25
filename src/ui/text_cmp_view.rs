@@ -44,11 +44,7 @@ impl<'a> TextCmpView<'a> {
 }
 
 impl<'a> EventHandler for TextCmpView<'a> {
-    fn handler(
-        &mut self,
-        event: &super::Action,
-        terminal: &mut super::TuiTerminal,
-    ) -> Result<Option<super::Action>, DiffTuiError> {
+    fn handler(&mut self, event: &super::Action) -> Result<Option<super::Action>, DiffTuiError> {
         match event {
             Action::NavDown => self.sel.select_next(),
             Action::NavUp => self.sel.select_previous(),

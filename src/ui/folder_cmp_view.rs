@@ -21,11 +21,10 @@ use crate::{
     DiffTuiError,
     diff::{DiffSide, dir::DirDiffTree},
     ui::{
-        Action, EventHandler, Notification, Popup, TabState, TuiTerminal,
+        Action, EventHandler, Notification, Popup, TabState,
         folder_view::{FolderView, FolderViewState},
         loading_msg::{LoadingMsg, LoadingMsgState},
         menu::Menu,
-        run_ext_tui_app,
         text_cmp_view::TextCmpView,
         tui,
     },
@@ -154,11 +153,7 @@ impl FolderCmpState {
 }
 
 impl EventHandler for FolderCmpState {
-    fn handler(
-        &mut self,
-        event: &Action,
-        terminal: &mut TuiTerminal,
-    ) -> Result<Option<Action>, DiffTuiError> {
+    fn handler(&mut self, event: &Action) -> Result<Option<Action>, DiffTuiError> {
         trace!("Handling event: {event:?}");
 
         if let Action::Tick = *event {
@@ -273,7 +268,7 @@ impl EventHandler for FolderCmpState {
                                     let rhs_path = self.rhs_path.join(rhs);
                                     let mut cmd = std::process::Command::new("nvim");
                                     cmd.arg("-d").arg(lhs_path).arg(rhs_path);
-                                    run_ext_tui_app(&mut cmd, terminal)?;
+                                    return Ok(Some(Action::RunExtApp(cmd)));
                                 }
                                 return Ok(None);
                             }
@@ -472,8 +467,8 @@ impl EventHandler for FolderCmpState {
                     Ok(None)
                 }
                 _ => match diff_side {
-                    DiffSide::Left => self.lhs_state.handler(event, terminal),
-                    DiffSide::Right => self.rhs_state.handler(event, terminal),
+                    DiffSide::Left => self.lhs_state.handler(event),
+                    DiffSide::Right => self.rhs_state.handler(event),
                 },
             },
         }
@@ -657,16 +652,14 @@ mod tests {
     #[test]
     fn tick_returns_none() {
         let mut state = fixture_state();
-        let mut term = make_terminal();
-        assert!(state.handler(&Action::Tick, &mut term).unwrap().is_none());
+        assert!(state.handler(&Action::Tick).unwrap().is_none());
     }
 
     #[test]
     fn nav_right_increments_horizontal_scroll_on_both_panels() {
         let mut state = fixture_state();
-        let mut term = make_terminal();
         assert_eq!(state.horizontal_scroll, 0);
-        state.handler(&Action::NavRight, &mut term).unwrap();
+        state.handler(&Action::NavRight).unwrap();
         assert_eq!(state.horizontal_scroll, 1);
         assert_eq!(state.lhs_state.horizontal_scroll(), 1);
         assert_eq!(state.rhs_state.horizontal_scroll(), 1);
@@ -675,26 +668,23 @@ mod tests {
     #[test]
     fn nav_left_decrements_horizontal_scroll() {
         let mut state = fixture_state();
-        let mut term = make_terminal();
-        state.handler(&Action::NavRight, &mut term).unwrap();
-        state.handler(&Action::NavRight, &mut term).unwrap();
-        state.handler(&Action::NavLeft, &mut term).unwrap();
+        state.handler(&Action::NavRight).unwrap();
+        state.handler(&Action::NavRight).unwrap();
+        state.handler(&Action::NavLeft).unwrap();
         assert_eq!(state.horizontal_scroll, 1);
     }
 
     #[test]
     fn nav_left_saturates_at_zero() {
         let mut state = fixture_state();
-        let mut term = make_terminal();
-        state.handler(&Action::NavLeft, &mut term).unwrap();
+        state.handler(&Action::NavLeft).unwrap();
         assert_eq!(state.horizontal_scroll, 0);
     }
 
     #[test]
     fn synced_nav_down_keeps_both_panels_in_sync() {
         let mut state = fixture_state();
-        let mut term = make_terminal();
-        state.handler(&Action::NavDown, &mut term).unwrap();
+        state.handler(&Action::NavDown).unwrap();
         assert_eq!(
             state.lhs_state.selected().selected(),
             state.rhs_state.selected().selected(),
@@ -704,9 +694,8 @@ mod tests {
     #[test]
     fn synced_nav_up_keeps_both_panels_in_sync() {
         let mut state = fixture_state();
-        let mut term = make_terminal();
-        state.handler(&Action::NavDown, &mut term).unwrap();
-        state.handler(&Action::NavUp, &mut term).unwrap();
+        state.handler(&Action::NavDown).unwrap();
+        state.handler(&Action::NavUp).unwrap();
         assert_eq!(
             state.lhs_state.selected().selected(),
             state.rhs_state.selected().selected(),

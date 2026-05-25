@@ -16,7 +16,7 @@ use tracing::trace;
 
 use crate::{
     diff::{DiffSide, DiffState, dir::DirDiffTree},
-    ui::{Action, EventHandler, TuiTerminal},
+    ui::{Action, EventHandler},
 };
 
 #[derive(Debug, Clone)]
@@ -132,11 +132,7 @@ impl FolderViewState {
 }
 
 impl EventHandler for FolderViewState {
-    fn handler(
-        &mut self,
-        event: &Action,
-        _: &mut TuiTerminal,
-    ) -> Result<Option<Action>, crate::DiffTuiError> {
+    fn handler(&mut self, event: &Action) -> Result<Option<Action>, crate::DiffTuiError> {
         match event {
             Action::NavUp => self.selection.scroll_up_by(1),
             Action::NavDown => self.selection.scroll_down_by(1),
@@ -343,16 +339,14 @@ mod tests {
     #[test]
     fn nav_down_increments_selection() {
         let mut state = empty_state(DiffSide::Left);
-        let mut term = make_terminal();
-        state.handler(&Action::NavDown, &mut term).unwrap();
+        state.handler(&Action::NavDown).unwrap();
         assert_eq!(state.selected().selected(), Some(1));
     }
 
     #[test]
     fn nav_up_at_zero_stays_at_zero() {
         let mut state = empty_state(DiffSide::Left);
-        let mut term = make_terminal();
-        state.handler(&Action::NavUp, &mut term).unwrap();
+        state.handler(&Action::NavUp).unwrap();
         assert_eq!(state.selected().selected(), Some(0));
     }
 

@@ -49,6 +49,8 @@ pub enum Action {
     PopupReturn(String, Option<String>),
     Notification(Notification),
     CreateTabAndSwitch(Box<dyn TabState>),
+    RunExtApp(std::process::Command),
+    ExtAppReturn(Option<i32>),
     NextTab,
     PrevTab,
     CloseTab,
@@ -102,11 +104,7 @@ impl TryFrom<KeyEvent> for Action {
 }
 
 pub trait EventHandler {
-    fn handler(
-        &mut self,
-        event: &Action,
-        terminal: &mut TuiTerminal,
-    ) -> Result<Option<Action>, DiffTuiError>;
+    fn handler(&mut self, event: &Action) -> Result<Option<Action>, DiffTuiError>;
 }
 
 pub trait TabState: EventHandler + std::fmt::Debug {
@@ -242,9 +240,13 @@ impl App {
                 }
                 return Ok(None);
             }
+            Action::RunExtApp(mut cmd) => {
+                let return_code = run_ext_tui_app(&mut cmd, terminal)?;
+                return Ok(Some(Action::ExtAppReturn(return_code)));
+            }
             _ => {
                 if let Some(tab) = self.tabs.get_mut(self.current_tab) {
-                    tab.handler(&act, terminal)
+                    tab.handler(&act)
                 } else {
                     error!("Invalid tab index: {}", self.current_tab);
                     Ok(None)
@@ -330,11 +332,11 @@ pub fn start_tui(lhs: PathBuf, rhs: PathBuf) -> Result<(), DiffTuiError> {
 pub fn run_ext_tui_app(
     cmd: &mut std::process::Command,
     terminal: &mut TuiTerminal,
-) -> std::io::Result<()> {
+) -> std::io::Result<Option<i32>> {
     let _event_blocker = pause_event_stream();
     stdout().execute(LeaveAlternateScreen)?;
     disable_raw_mode()?;
-    cmd.status()?;
+    let status = cmd.status()?;
     if let Err(e) = stdout().execute(EnterAlternateScreen) {
         eprintln!("Run command {:?} failed: {e}", cmd);
         error!("Run command {:?} failed: {e}", cmd);
@@ -344,5 +346,5 @@ pub fn run_ext_tui_app(
     while crossterm::event::poll(Duration::from_millis(10))? {
         let _ = crossterm::event::read()?;
     }
-    Ok(())
+    Ok(status.code())
 }
