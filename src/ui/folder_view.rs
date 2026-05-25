@@ -1,5 +1,4 @@
 use std::{
-    cmp::min,
     collections::HashSet,
     ffi::OsStr,
     path::{Path, PathBuf},
@@ -181,7 +180,7 @@ impl<'a> StatefulWidget for FolderView<'a> {
 
             StatefulWidget::render(
                 List::new(list_items)
-                    .highlight_style(Style::new().bg(Color::Blue))
+                    .highlight_style(Style::new().bg(Color::DarkGray))
                     .block(list_border),
                 area,
                 buf,
