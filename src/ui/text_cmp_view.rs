@@ -1,4 +1,8 @@
-use std::{cmp::max, fmt::Debug, path::PathBuf};
+use std::{
+    cmp::max,
+    fmt::Debug,
+    path::{Path, PathBuf},
+};
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Spacing},
@@ -20,6 +24,7 @@ pub struct TextCmpView<'a> {
     diff: TextDiff<'a, 'a, str>,
     sel: ListState,
     horzontal_scroll: usize,
+    title: String,
 }
 
 impl<'a> Debug for TextCmpView<'a> {
@@ -36,7 +41,9 @@ impl<'a> TextCmpView<'a> {
         let lhs_content = std::fs::read_to_string(lhs.as_path())?;
         let rhs_content = std::fs::read_to_string(rhs.as_path())?;
         let diff = TextDiff::from_lines(lhs_content, rhs_content);
+
         Ok(Self {
+            title: Self::build_title(lhs.as_path(), rhs.as_path()).unwrap_or(String::from("Text")),
             lhs_path: lhs,
             rhs_path: rhs,
             diff,
@@ -65,6 +72,41 @@ impl<'a> TextCmpView<'a> {
         }
 
         return list;
+    }
+
+    fn build_title(lhs: &Path, rhs: &Path) -> Option<String> {
+        let mut title: Option<String> = None;
+        if let Some((lhs_base, rhs_base)) = lhs.file_name().zip(rhs.file_name()) {
+            let lhs_base = lhs_base.to_string_lossy();
+            let rhs_base = rhs_base.to_string_lossy();
+            if lhs_base == rhs_base {
+                let lhs_parent = lhs.parent().and_then(|p| p.file_name());
+                let rhs_parent = rhs.parent().and_then(|p| p.file_name());
+                if lhs_parent == rhs_parent {
+                    for (lhs_comp, rhs_comp) in lhs.components().rev().zip(rhs.components().rev()) {
+                        if lhs_comp != rhs_comp {
+                            let lhs_comp = lhs_comp.as_os_str().to_string_lossy();
+                            let rhs_comp = rhs_comp.as_os_str().to_string_lossy();
+                            title = Some(format!("{}<=>{}/../{}", lhs_comp, rhs_comp, lhs_base));
+                            break;
+                        }
+                    }
+                    if title.is_none() {
+                        title = Some(lhs_base.to_string());
+                    }
+                } else {
+                    title = Some(format!(
+                        "{}<=>{}/{}",
+                        lhs_parent.map(|s| s.to_str()).flatten().unwrap_or("\"\""),
+                        rhs_parent.map(|s| s.to_str()).flatten().unwrap_or("\"\""),
+                        lhs_base
+                    ));
+                }
+            } else {
+                title = Some(format!("{}<=>{}", lhs_base, rhs_base));
+            }
+        }
+        title
     }
 }
 
@@ -113,7 +155,7 @@ impl<'a> EventHandler for TextCmpView<'a> {
 
 impl<'a> TabState for TextCmpView<'a> {
     fn title(&self) -> String {
-        "Text".to_string()
+        self.title.clone()
     }
 
     fn render(&mut self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer) {
