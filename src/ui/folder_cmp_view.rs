@@ -350,7 +350,7 @@ impl EventHandler for FolderCmpState {
                 }
             }
             Action::Open => {
-                let mut options = vec![("neovim diff".to_string(), Some('n'))];
+                let mut options = vec![];
                 if let Some((lhs, rhs)) = self
                     .lhs_state
                     .selected_path()
@@ -368,6 +368,7 @@ impl EventHandler for FolderCmpState {
                     {
                         options.push(("new file tab".to_string(), Some('t')))
                     }
+                    options.push(("neovim diff".to_string(), Some('n')));
                 }
                 return Ok(Some(Action::ShowPopup(Box::new(
                     Menu::new("Open".to_string(), options)
