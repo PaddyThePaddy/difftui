@@ -38,8 +38,10 @@ impl<'a> Debug for TextCmpView<'a> {
 
 impl<'a> TextCmpView<'a> {
     pub fn new(lhs: PathBuf, rhs: PathBuf) -> Result<Self, DiffTuiError> {
-        let lhs_content = std::fs::read_to_string(lhs.as_path())?;
-        let rhs_content = std::fs::read_to_string(rhs.as_path())?;
+        let lhs_content = std::fs::read(lhs.as_path())?;
+        let lhs_content = String::from_utf8_lossy(&lhs_content).to_string();
+        let rhs_content = std::fs::read(rhs.as_path())?;
+        let rhs_content = String::from_utf8_lossy(&rhs_content).to_string();
         let diff = TextDiff::from_lines(lhs_content, rhs_content);
 
         Ok(Self {
