@@ -468,6 +468,7 @@ dependencies = [
  "ratatui",
  "ratatui-textarea",
  "rayon",
+ "regex",
  "serde",
  "serde_derive",
  "signal-hook 0.4.4",

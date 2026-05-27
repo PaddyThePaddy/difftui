@@ -21,8 +21,10 @@ use ratatui::{
         terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
     },
     layout::{Constraint, Direction, Layout, Rect},
+    text::Span,
     widgets::{Block, Clear, Paragraph, Tabs, Widget},
 };
+use regex::{Regex, RegexBuilder};
 use tracing::{error, trace};
 
 pub type TuiTerminal = ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>;
@@ -59,6 +61,9 @@ pub enum Action {
     ShowHelp,
     PageUp(f32),
     PageDown(f32),
+    EditSearch,
+    SearchNext(String, Regex),
+    SearchPrev(String, Regex),
 }
 
 impl TryFrom<&Event> for Action {
@@ -100,13 +105,14 @@ impl TryFrom<KeyEvent> for Action {
                 KeyCode::Char('c') => Ok(Self::Compare),
                 KeyCode::Char('o') => Ok(Self::Open),
                 KeyCode::Char('g') => Ok(Self::NavTop),
-                KeyCode::Char('/') => Ok(Self::PopupFilter),
+                KeyCode::Char('f') => Ok(Self::PopupFilter),
                 KeyCode::Char('=') => Ok(Self::ToggleCoupling),
                 KeyCode::Enter => Ok(Self::ToggleSelected),
                 KeyCode::Tab => Ok(Self::NextTab),
                 KeyCode::Char(']') => Ok(Self::NextDiff),
                 KeyCode::Char('[') => Ok(Self::PrevDiff),
                 KeyCode::Char('?') | KeyCode::F(1) => Ok(Self::ShowHelp),
+                KeyCode::Char('/') => Ok(Self::EditSearch),
                 _ => Err(()),
             }
         } else {
@@ -147,38 +153,83 @@ pub struct Notification {
     pub body: String,
 }
 
+#[derive(Debug, Default)]
+pub enum SearchState {
+    #[default]
+    None,
+    Editing(String),
+    Finished(String, Regex),
+}
+
+impl SearchState {
+    pub fn pattern(&self) -> Option<&Regex> {
+        if let Self::Finished(_, pattern) = self {
+            Some(pattern)
+        } else {
+            None
+        }
+    }
+
+    pub fn is_none(&self) -> bool {
+        if let Self::None = self { true } else { false }
+    }
+
+    pub fn text(&self) -> Option<&str> {
+        match self {
+            Self::None => None,
+            Self::Finished(s, _) => Some(s.as_str()),
+            Self::Editing(s) => Some(s.as_str()),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct App {
     should_quit: bool,
     tabs: Vec<Box<dyn TabState>>,
     current_tab: usize,
     popup: Option<Box<dyn Popup>>,
     showing_notify: Option<Notification>,
+    search_state: SearchState,
 }
 
 impl App {
     fn render(&mut self, frame: &mut Frame) {
-        if self.tabs.len() == 1 {
-            if let Some(tab) = self.tabs.get_mut(self.current_tab) {
-                tab.render(frame.area(), frame.buffer_mut());
-            }
-        } else {
-            let layout = Layout::new(
-                Direction::Vertical,
-                [Constraint::Length(1), Constraint::Fill(1)],
-            );
-            let [tabline, content_area] = frame.area().layout(&layout);
+        let has_tabline = self.tabs.len() > 1;
+        let has_statusline = !self.search_state.is_none();
+        let layout = Layout::new(
+            Direction::Vertical,
+            [
+                Constraint::Length(if has_tabline { 1 } else { 0 }),
+                Constraint::Fill(1),
+                Constraint::Length(if has_statusline { 1 } else { 0 }),
+            ],
+        );
+        let [tabline, content, statusline] = frame.area().layout(&layout);
+        if has_tabline {
             Tabs::new(self.tabs.iter().map(|t| t.title()))
                 .select(self.current_tab)
                 .render(tabline, frame.buffer_mut());
-            if let Some(tab) = self.tabs.get_mut(self.current_tab) {
-                tab.render(content_area, frame.buffer_mut());
-            }
+        }
+        if let Some(tab) = self.tabs.get_mut(self.current_tab) {
+            tab.render(content, frame.buffer_mut());
+        }
+
+        if has_statusline {
+            self.render_statusline(statusline, frame.buffer_mut());
         }
 
         if let Some(notify) = &self.showing_notify {
             self.render_notify(frame, notify);
         } else if let Some(popup) = &mut self.popup {
             popup.render(frame);
+        }
+    }
+
+    fn render_statusline(&self, area: Rect, buf: &mut Buffer) {
+        if let Some(s) = &self.search_state.text() {
+            let search_prompt = format!("/{s}");
+            Span::raw(search_prompt).render(area, buf);
         }
     }
 
@@ -192,6 +243,48 @@ impl App {
             return None;
         } else if let Some(popup) = &mut self.popup {
             return popup.handler(&evt);
+        } else if let (tui::Event::Key(key), SearchState::Editing(s)) =
+            (&evt, &mut self.search_state)
+        {
+            match key.code {
+                KeyCode::Esc => {
+                    self.search_state = SearchState::None;
+                }
+                KeyCode::Enter => {
+                    match RegexBuilder::new(s)
+                        .case_insensitive(s.chars().all(|c| c.is_lowercase()))
+                        .build()
+                    {
+                        Ok(r) => {
+                            let s = s.clone();
+                            self.search_state = SearchState::Finished(s.clone(), r.clone());
+                            return Some(Action::SearchNext(s, r));
+                        }
+                        Err(e) => {
+                            return Some(Action::Notification(Notification {
+                                title: "Invalid pattern".to_string(),
+                                body: e.to_string(),
+                            }));
+                        }
+                    }
+                }
+                KeyCode::Backspace => {
+                    s.pop();
+                }
+                KeyCode::Char(c) => {
+                    s.push(c);
+                }
+                _ => {}
+            }
+            return None;
+        } else if let (tui::Event::Key(key), SearchState::Finished(s, r)) =
+            (&evt, &self.search_state)
+        {
+            match key.code {
+                KeyCode::Char('n') => return Some(Action::SearchNext(s.clone(), r.clone())),
+                KeyCode::Char('N') => return Some(Action::SearchPrev(s.clone(), r.clone())),
+                _ => {}
+            }
         }
 
         if let tui::Event::Key(k_evt) = evt {
@@ -276,6 +369,10 @@ impl App {
                     .join("\n"),
                 })));
             }
+            Action::EditSearch => {
+                self.search_state = SearchState::Editing(String::new());
+                return Ok(None);
+            }
             _ => {
                 if let Some(tab) = self.tabs.get_mut(self.current_tab) {
                     tab.handler(&act)
@@ -359,6 +456,7 @@ pub fn start_tui(lhs: PathBuf, rhs: PathBuf) -> Result<(), DiffTuiError> {
             should_quit: false,
             popup: None,
             showing_notify: None,
+            search_state: SearchState::default(),
         };
         app.run().await.unwrap();
         Ok::<(), DiffTuiError>(())

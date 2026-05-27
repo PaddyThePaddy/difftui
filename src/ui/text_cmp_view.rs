@@ -11,6 +11,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, List, ListState, StatefulWidget},
 };
+use regex::Regex;
 use similar::{ChangeTag, TextDiff};
 
 use crate::{
@@ -26,6 +27,7 @@ pub struct TextCmpView<'a> {
     horzontal_scroll: usize,
     title: String,
     page_height: Option<u16>,
+    highlight: Option<(String, Regex)>,
 }
 
 impl<'a> Debug for TextCmpView<'a> {
@@ -53,6 +55,7 @@ impl<'a> TextCmpView<'a> {
             sel: ListState::default().with_selected(Some(0)),
             horzontal_scroll: 0,
             page_height: None,
+            highlight: None,
         })
     }
 
@@ -164,6 +167,73 @@ impl<'a> EventHandler for TextCmpView<'a> {
                             title: "Previous diff".to_string(),
                             body: "Reached first diff".to_string(),
                         })));
+                    }
+                }
+            }
+            Action::SearchNext(s, r) => {
+                self.highlight = Some((s.clone(), r.clone()));
+                if let Some(current) = self.sel.selected() {
+                    let lines = self
+                        .diff
+                        .iter_all_changes()
+                        .map(|c| c.value())
+                        .collect::<Vec<_>>();
+                    let mut idx = current + 1;
+                    while let Some(line) = lines.get(idx) {
+                        if r.is_match(line) {
+                            self.sel.select(Some(idx));
+                            return Ok(None);
+                        }
+                        idx += 1;
+                    }
+                    idx = 0;
+                    while let Some(line) = lines.get(idx) {
+                        if idx == current {
+                            return Ok(Some(Action::Notification(Notification {
+                                title: "Search".to_string(),
+                                body: "No matches found".to_string(),
+                            })));
+                        }
+                        if r.is_match(line) {
+                            self.sel.select(Some(idx));
+                            return Ok(None);
+                        }
+                        idx += 1;
+                    }
+                }
+            }
+            Action::SearchPrev(s, r) => {
+                self.highlight = Some((s.clone(), r.clone()));
+                if let Some(current) = self.sel.selected() {
+                    let lines = self
+                        .diff
+                        .iter_all_changes()
+                        .map(|c| c.value())
+                        .collect::<Vec<_>>();
+                    let mut idx = current;
+                    if idx != 0 {
+                        idx -= 1;
+                        while let Some(line) = lines.get(idx) {
+                            if r.is_match(line) {
+                                self.sel.select(Some(idx));
+                                return Ok(None);
+                            }
+                            idx -= 1;
+                        }
+                    }
+                    idx = lines.len() - 1;
+                    while let Some(line) = lines.get(idx) {
+                        if idx == current {
+                            return Ok(Some(Action::Notification(Notification {
+                                title: "Search".to_string(),
+                                body: "No matches found".to_string(),
+                            })));
+                        }
+                        if r.is_match(line) {
+                            self.sel.select(Some(idx));
+                            return Ok(None);
+                        }
+                        idx -= 1;
                     }
                 }
             }

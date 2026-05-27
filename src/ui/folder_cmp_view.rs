@@ -15,6 +15,8 @@ use ratatui::{
     widgets::{Block, ListState, StatefulWidget, Widget as _},
 };
 use ratatui_textarea::{CursorMove, TextArea};
+use regex::Regex;
+use similar::DiffableStr;
 use tracing::{error, trace};
 
 use crate::{
@@ -54,6 +56,7 @@ pub struct FolderCmpState {
     display_map: HashSet<PathBuf>,
     filtered_tree: Option<Arc<DirDiffTree>>,
     page_height: Option<u16>,
+    highlight: Option<(String, Regex)>,
 }
 
 impl FolderCmpState {
@@ -96,6 +99,7 @@ impl FolderCmpState {
             display_map: HashSet::new(),
             filtered_tree: None,
             page_height: None,
+            highlight: None,
         })
     }
 
@@ -506,8 +510,89 @@ impl EventHandler for FolderCmpState {
                             }
                         }
                     }
+                    Action::SearchNext(s, r) => {
+                        self.highlight = Some((s.clone(), r.clone()));
+                        if let Some(current) = list_state.selected() {
+                            let mut idx = current + 1;
+                            while let Some(p) = self.lhs_state.get_item_full_name(idx) {
+                                if let Some(name) = p.file_name() {
+                                    let name = name.to_string_lossy();
+                                    if r.is_match(&name) {
+                                        list_state.select(Some(idx));
+                                        *self.lhs_state.selected_mut() = *list_state;
+                                        *self.rhs_state.selected_mut() = *list_state;
+                                        return Ok(None);
+                                    }
+                                }
+                                idx += 1;
+                            }
+                            idx = 0;
+                            while let Some(p) = self.lhs_state.get_item_full_name(idx) {
+                                if idx == current {
+                                    return Ok(Some(Action::Notification(Notification {
+                                        title: "Search".to_string(),
+                                        body: "No matches found".to_string(),
+                                    })));
+                                }
+                                if let Some(name) = p.file_name() {
+                                    let name = name.to_string_lossy();
+                                    if r.is_match(&name) {
+                                        list_state.select(Some(idx));
+                                        *self.lhs_state.selected_mut() = *list_state;
+                                        *self.rhs_state.selected_mut() = *list_state;
+                                        return Ok(None);
+                                    }
+                                }
+                                idx += 1;
+                            }
+                        }
+                    }
+                    Action::SearchPrev(s, r) => {
+                        self.highlight = Some((s.clone(), r.clone()));
+                        if let Some(current) = list_state.selected() {
+                            let mut idx = current;
+                            if idx != 0 {
+                                idx -= 1;
+                                while let Some(p) = self.lhs_state.get_item_full_name(idx) {
+                                    if let Some(name) = p.file_name() {
+                                        let name = name.to_string_lossy();
+                                        if r.is_match(&name) {
+                                            list_state.select(Some(idx));
+                                            *self.lhs_state.selected_mut() = *list_state;
+                                            *self.rhs_state.selected_mut() = *list_state;
+                                            return Ok(None);
+                                        }
+                                    }
+                                    if idx == 0 {
+                                        break;
+                                    }
+                                    idx -= 1;
+                                }
+                            }
+                            idx = self.lhs_state.len().saturating_sub(1);
+                            while let Some(p) = self.lhs_state.get_item_full_name(idx) {
+                                if idx == current {
+                                    return Ok(Some(Action::Notification(Notification {
+                                        title: "Search".to_string(),
+                                        body: "No matches found".to_string(),
+                                    })));
+                                }
+                                if let Some(name) = p.file_name() {
+                                    let name = name.to_string_lossy();
+                                    if r.is_match(&name) {
+                                        list_state.select(Some(idx));
+                                        *self.lhs_state.selected_mut() = *list_state;
+                                        *self.rhs_state.selected_mut() = *list_state;
+                                        return Ok(None);
+                                    }
+                                }
+                                idx -= 1;
+                            }
+                        }
+                    }
                     _ => {}
                 }
+
                 Ok(None)
             }
             FocusState::FocusOn(diff_side) => match event {

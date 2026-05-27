@@ -12,6 +12,7 @@ use ratatui::{
     symbols::merge::MergeStrategy,
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, StatefulWidget, Widget},
 };
+use regex::Regex;
 use tracing::trace;
 
 use crate::{
@@ -28,6 +29,7 @@ pub struct FolderViewState {
     items_full_name: Vec<PathBuf>,
     horizontal_scroll: usize,
     page_height: Option<u16>,
+    highlight: Option<(String, Regex)>,
 }
 
 static NORMAL_LIST_STYLE: LazyLock<Style> = LazyLock::new(|| Style::default());
@@ -45,6 +47,7 @@ impl FolderViewState {
             items_full_name: Vec::new(),
             horizontal_scroll: 0,
             page_height: None,
+            highlight: None,
         }
     }
 
@@ -135,6 +138,10 @@ impl FolderViewState {
     pub fn set_tree(&mut self, new_tree: Arc<DirDiffTree>) {
         self.tree = new_tree;
     }
+
+    pub fn len(&self) -> usize {
+        self.items_full_name.len()
+    }
 }
 
 impl EventHandler for FolderViewState {
@@ -201,6 +208,78 @@ impl EventHandler for FolderViewState {
                             title: "Previous diff".to_string(),
                             body: "Reached first diff".to_string(),
                         })));
+                    }
+                }
+            }
+            Action::SearchNext(s, r) => {
+                self.highlight = Some((s.clone(), r.clone()));
+                if let Some(current) = self.selection.selected() {
+                    let mut idx = current + 1;
+                    while let Some(p) = self.get_item_full_name(idx) {
+                        if let Some(name) = p.file_name() {
+                            let name = name.to_string_lossy();
+                            if r.is_match(&name) {
+                                self.selection.select(Some(idx));
+                                return Ok(None);
+                            }
+                        }
+                        idx += 1;
+                    }
+                    idx = 0;
+                    while let Some(p) = self.get_item_full_name(idx) {
+                        if idx == current {
+                            return Ok(Some(Action::Notification(Notification {
+                                title: "Search".to_string(),
+                                body: "No matches found".to_string(),
+                            })));
+                        }
+                        if let Some(name) = p.file_name() {
+                            let name = name.to_string_lossy();
+                            if r.is_match(&name) {
+                                self.selection.select(Some(idx));
+                                return Ok(None);
+                            }
+                        }
+                        idx += 1;
+                    }
+                }
+            }
+            Action::SearchPrev(s, r) => {
+                self.highlight = Some((s.clone(), r.clone()));
+                if let Some(current) = self.selection.selected() {
+                    let mut idx = current;
+                    if idx != 0 {
+                        idx -= 1;
+                        while let Some(p) = self.get_item_full_name(idx) {
+                            if let Some(name) = p.file_name() {
+                                let name = name.to_string_lossy();
+                                if r.is_match(&name) {
+                                    self.selection.select(Some(idx));
+                                    return Ok(None);
+                                }
+                            }
+                            if idx == 0 {
+                                break;
+                            }
+                            idx -= 1;
+                        }
+                    }
+                    idx = self.len().saturating_sub(1);
+                    while let Some(p) = self.get_item_full_name(idx) {
+                        if idx == current {
+                            return Ok(Some(Action::Notification(Notification {
+                                title: "Search".to_string(),
+                                body: "No matches found".to_string(),
+                            })));
+                        }
+                        if let Some(name) = p.file_name() {
+                            let name = name.to_string_lossy();
+                            if r.is_match(&name) {
+                                self.selection.select(Some(idx));
+                                return Ok(None);
+                            }
+                        }
+                        idx -= 1;
                     }
                 }
             }
