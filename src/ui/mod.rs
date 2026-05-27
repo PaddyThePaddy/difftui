@@ -57,6 +57,8 @@ pub enum Action {
     NextDiff,
     PrevDiff,
     ShowHelp,
+    PageUp(f32),
+    PageDown(f32),
 }
 
 impl TryFrom<&Event> for Action {
@@ -76,6 +78,10 @@ impl TryFrom<KeyEvent> for Action {
         if value.modifiers == KeyModifiers::CONTROL {
             match value.code {
                 KeyCode::Char('c') => Ok(Self::ExitApp(None)),
+                KeyCode::Char('d') => Ok(Self::PageDown(0.5)),
+                KeyCode::Char('u') => Ok(Self::PageUp(0.5)),
+                KeyCode::Char('f') => Ok(Self::PageDown(1.0)),
+                KeyCode::Char('b') => Ok(Self::PageUp(1.0)),
                 _ => Err(()),
             }
         } else if value.modifiers == KeyModifiers::SHIFT {
@@ -302,6 +308,7 @@ impl App {
                 }
                 let mut maybe_action = self.handle_event(evt);
                 while let Some(action) = maybe_action {
+                    trace!("action = {action:?}");
                     if let Action::ExitApp(msg) = action {
                         self.should_quit = true;
                         break 'main msg;

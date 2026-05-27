@@ -53,6 +53,7 @@ pub struct FolderCmpState {
     filters: GlobSet,
     display_map: HashSet<PathBuf>,
     filtered_tree: Option<Arc<DirDiffTree>>,
+    page_height: Option<u16>,
 }
 
 impl FolderCmpState {
@@ -94,6 +95,7 @@ impl FolderCmpState {
             filters: default_glob_set,
             display_map: HashSet::new(),
             filtered_tree: None,
+            page_height: None,
         })
     }
 
@@ -402,6 +404,28 @@ impl EventHandler for FolderCmpState {
                         *self.lhs_state.selected_mut() = *list_state;
                         *self.rhs_state.selected_mut() = *list_state;
                     }
+                    Action::PageDown(factor) => {
+                        if let Some(page_height) = self.page_height {
+                            trace!("page_height = {page_height}");
+                            trace!("factor = {factor}");
+                            let line = (page_height as f32 * *factor).floor() as u16;
+                            for _ in 0..line {
+                                list_state.select_next();
+                            }
+                            *self.lhs_state.selected_mut() = *list_state;
+                            *self.rhs_state.selected_mut() = *list_state;
+                        }
+                    }
+                    Action::PageUp(factor) => {
+                        if let Some(page_height) = self.page_height {
+                            let line = (page_height as f32 * *factor).floor() as u16;
+                            for _ in 0..line {
+                                list_state.select_previous();
+                            }
+                            *self.lhs_state.selected_mut() = *list_state;
+                            *self.rhs_state.selected_mut() = *list_state;
+                        }
+                    }
                     Action::ToggleSelected => {
                         if let Some(selected_p) = self.lhs_state.selected_path() {
                             if self.expanded_pathes.contains(selected_p) {
@@ -541,6 +565,7 @@ impl TabState for FolderCmpState {
     }
 
     fn render(&mut self, area: Rect, buf: &mut Buffer) {
+        self.page_height = Some(area.height - 2);
         FolderCmpView::default().render(area, buf, self);
     }
 }

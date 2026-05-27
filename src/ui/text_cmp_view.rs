@@ -25,6 +25,7 @@ pub struct TextCmpView<'a> {
     sel: ListState,
     horzontal_scroll: usize,
     title: String,
+    page_height: Option<u16>,
 }
 
 impl<'a> Debug for TextCmpView<'a> {
@@ -51,6 +52,7 @@ impl<'a> TextCmpView<'a> {
             diff,
             sel: ListState::default().with_selected(Some(0)),
             horzontal_scroll: 0,
+            page_height: None,
         })
     }
 
@@ -121,6 +123,22 @@ impl<'a> EventHandler for TextCmpView<'a> {
             Action::NavLeft => self.horzontal_scroll = self.horzontal_scroll.saturating_sub(1),
             Action::NavTop => self.sel.select_first(),
             Action::NavBottom => self.sel.select_last(),
+            Action::PageDown(factor) => {
+                if let Some(page_height) = self.page_height {
+                    let line = (page_height as f32 * *factor).floor() as u16;
+                    for _ in 0..line {
+                        self.sel.select_next();
+                    }
+                }
+            }
+            Action::PageUp(factor) => {
+                if let Some(page_height) = self.page_height {
+                    let line = (page_height as f32 * *factor).floor() as u16;
+                    for _ in 0..line {
+                        self.sel.select_previous();
+                    }
+                }
+            }
             Action::NextDiff => {
                 if let Some(current_ln) = self.sel.selected() {
                     let diff_hunks = self.diff_hunks();
@@ -161,6 +179,7 @@ impl<'a> TabState for TextCmpView<'a> {
     }
 
     fn render(&mut self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer) {
+        self.page_height = Some(area.height - 2);
         // TODO: Can we cache inline_diff so we don't need to build it for every frame?
         let inline_diff = self.diff.iter_all_inline_changes().collect::<Vec<_>>();
         let mut lhs_list = vec![];

@@ -27,6 +27,7 @@ pub struct FolderViewState {
     expanded_pathes: HashSet<PathBuf>,
     items_full_name: Vec<PathBuf>,
     horizontal_scroll: usize,
+    page_height: Option<u16>,
 }
 
 static NORMAL_LIST_STYLE: LazyLock<Style> = LazyLock::new(|| Style::default());
@@ -43,6 +44,7 @@ impl FolderViewState {
             expanded_pathes: HashSet::new(),
             items_full_name: Vec::new(),
             horizontal_scroll: 0,
+            page_height: None,
         }
     }
 
@@ -140,6 +142,22 @@ impl EventHandler for FolderViewState {
         match event {
             Action::NavUp => self.selection.scroll_up_by(1),
             Action::NavDown => self.selection.scroll_down_by(1),
+            Action::PageDown(factor) => {
+                if let Some(page_height) = self.page_height {
+                    let line = (page_height as f32 * *factor).floor() as u16;
+                    for _ in 0..line {
+                        self.selection.select_next();
+                    }
+                }
+            }
+            Action::PageUp(factor) => {
+                if let Some(page_height) = self.page_height {
+                    let line = (page_height as f32 * *factor).floor() as u16;
+                    for _ in 0..line {
+                        self.selection.select_previous();
+                    }
+                }
+            }
             Action::ToggleSelected => self.toggle_selected(),
             Action::NextDiff => {
                 if let Some(selected) = self.selection.selected() {
@@ -202,6 +220,7 @@ impl<'a> StatefulWidget for FolderView<'a> {
     type State = FolderViewState;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        state.page_height = Some(area.height - 2);
         state.items_full_name.clear();
         let list_border = Block::new()
             .title(self.title.as_str())
