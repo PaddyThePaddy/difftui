@@ -28,6 +28,7 @@ pub struct TextCmpView<'a> {
     title: String,
     page_height: Option<u16>,
     highlight: Option<Regex>,
+    line_number: bool,
 }
 
 impl<'a> Debug for TextCmpView<'a> {
@@ -45,18 +46,34 @@ impl<'a> TextCmpView<'a> {
         let lhs_content = String::from_utf8_lossy(&lhs_content).to_string();
         let rhs_content = std::fs::read(rhs.as_path())?;
         let rhs_content = String::from_utf8_lossy(&rhs_content).to_string();
-        let diff = TextDiff::from_lines(lhs_content, rhs_content);
+        Self::new_from_str(lhs_content, lhs, rhs_content, rhs)
+    }
+
+    pub fn new_from_str(
+        lhs: String,
+        lhs_path: PathBuf,
+        rhs: String,
+        rhs_path: PathBuf,
+    ) -> Result<Self, DiffTuiError> {
+        let diff = TextDiff::from_lines(lhs, rhs);
 
         Ok(Self {
-            title: Self::build_title(lhs.as_path(), rhs.as_path()).unwrap_or(String::from("Text")),
-            lhs_path: lhs,
-            rhs_path: rhs,
+            title: Self::build_title(lhs_path.as_path(), rhs_path.as_path())
+                .unwrap_or(String::from("Text")),
+            lhs_path: lhs_path,
+            rhs_path: rhs_path,
             diff,
             sel: ListState::default().with_selected(Some(0)),
             horzontal_scroll: 0,
             page_height: None,
             highlight: None,
+            line_number: true,
         })
+    }
+
+    pub fn line_number(mut self, line_number: bool) -> Self {
+        self.line_number = line_number;
+        self
     }
 
     fn diff_hunks(&self) -> Vec<(usize, usize)> {
@@ -349,10 +366,14 @@ impl<'a> TabState for TextCmpView<'a> {
                 .collect::<Vec<_>>();
 
             if let Some(ln) = change.old_index() {
-                let mut line = Line::from_iter([
-                    Span::from(format!("{:1$}", ln, ln_space)).dim(),
-                    Span::from(" │ ").dim(),
-                ])
+                let mut line = if self.line_number {
+                    Line::from_iter([
+                        Span::from(format!("{:1$}", ln, ln_space)).dim(),
+                        Span::from(" │ ").dim(),
+                    ])
+                } else {
+                    Line::default()
+                }
                 .fg(if change.tag() != ChangeTag::Equal {
                     Color::Red
                 } else {
@@ -363,10 +384,14 @@ impl<'a> TabState for TextCmpView<'a> {
                 lhs_list.push(line);
             }
             if let Some(ln) = change.new_index() {
-                let mut line = Line::from_iter([
-                    Span::from(format!("{:1$}", ln, ln_space)).dim(),
-                    Span::from(" │ ").dim(),
-                ])
+                let mut line = if self.line_number {
+                    Line::from_iter([
+                        Span::from(format!("{:1$}", ln, ln_space)).dim(),
+                        Span::from(" │ ").dim(),
+                    ])
+                } else {
+                    Line::default()
+                }
                 .fg(if change.tag() != ChangeTag::Equal {
                     Color::Red
                 } else {

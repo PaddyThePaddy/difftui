@@ -24,6 +24,7 @@ use crate::{
     ui::{
         Action, EventHandler, Notification, Popup, TabState,
         folder_view::{FolderView, FolderViewState},
+        hex_cmp_view::HexCmpView,
         loading_msg::{LoadingMsg, LoadingMsgState},
         menu::Menu,
         text_cmp_view::TextCmpView,
@@ -303,6 +304,19 @@ impl EventHandler for FolderCmpState {
                                     ))));
                                 }
                             }
+                            "new hex tab" => {
+                                if let Some((lhs, rhs)) = self
+                                    .lhs_state
+                                    .selected_path()
+                                    .zip(self.rhs_state.selected_path())
+                                {
+                                    let lhs = self.lhs_path.join(lhs);
+                                    let rhs = self.rhs_path.join(rhs);
+                                    return Ok(Some(Action::CreateTabAndSwitch(Box::new(
+                                        HexCmpView::new(lhs, rhs)?,
+                                    ))));
+                                }
+                            }
                             _ => {
                                 return Ok(Some(Action::Notification(Notification {
                                     title: "Unknown option".to_string(),
@@ -366,12 +380,13 @@ impl EventHandler for FolderCmpState {
                     if lhs.metadata().is_ok_and(|meta| meta.is_dir())
                         && rhs.metadata().is_ok_and(|meta| meta.is_dir())
                     {
-                        options.push(("new tab".to_string(), Some('t')))
+                        options.push(("new tab".to_string(), Some('t')));
                     }
                     if lhs.metadata().is_ok_and(|meta| meta.is_file())
                         && rhs.metadata().is_ok_and(|meta| meta.is_file())
                     {
-                        options.push(("new file tab".to_string(), Some('t')))
+                        options.push(("new file tab".to_string(), Some('t')));
+                        options.push(("new hex tab".to_string(), Some('h')));
                     }
                     options.push(("neovim diff".to_string(), Some('n')));
                 }

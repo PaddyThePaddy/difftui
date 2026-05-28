@@ -1,5 +1,6 @@
 mod folder_cmp_view;
 mod folder_view;
+mod hex_cmp_view;
 mod loading_msg;
 mod menu;
 mod text_cmp_view;
