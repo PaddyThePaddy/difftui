@@ -16,7 +16,6 @@ use ratatui::{
 };
 use ratatui_textarea::{CursorMove, TextArea};
 use regex::Regex;
-use similar::DiffableStr;
 use tracing::{error, trace};
 
 use crate::{
@@ -56,7 +55,7 @@ pub struct FolderCmpState {
     display_map: HashSet<PathBuf>,
     filtered_tree: Option<Arc<DirDiffTree>>,
     page_height: Option<u16>,
-    highlight: Option<(String, Regex)>,
+    highlight: Option<Regex>,
 }
 
 impl FolderCmpState {
@@ -510,8 +509,8 @@ impl EventHandler for FolderCmpState {
                             }
                         }
                     }
-                    Action::SearchNext(s, r) => {
-                        self.highlight = Some((s.clone(), r.clone()));
+                    Action::SearchNext(r) => {
+                        self.highlight = Some(r.clone());
                         if let Some(current) = list_state.selected() {
                             let mut idx = current + 1;
                             while let Some(p) = self.lhs_state.get_item_full_name(idx) {
@@ -547,8 +546,8 @@ impl EventHandler for FolderCmpState {
                             }
                         }
                     }
-                    Action::SearchPrev(s, r) => {
-                        self.highlight = Some((s.clone(), r.clone()));
+                    Action::SearchPrev(r) => {
+                        self.highlight = Some(r.clone());
                         if let Some(current) = list_state.selected() {
                             let mut idx = current;
                             if idx != 0 {

@@ -62,8 +62,8 @@ pub enum Action {
     PageUp(f32),
     PageDown(f32),
     EditSearch,
-    SearchNext(String, Regex),
-    SearchPrev(String, Regex),
+    SearchNext(Regex),
+    SearchPrev(Regex),
 }
 
 impl TryFrom<&Event> for Action {
@@ -256,9 +256,8 @@ impl App {
                         .build()
                     {
                         Ok(r) => {
-                            let s = s.clone();
                             self.search_state = SearchState::Finished(s.clone(), r.clone());
-                            return Some(Action::SearchNext(s, r));
+                            return Some(Action::SearchNext(r));
                         }
                         Err(e) => {
                             return Some(Action::Notification(Notification {
@@ -277,12 +276,12 @@ impl App {
                 _ => {}
             }
             return None;
-        } else if let (tui::Event::Key(key), SearchState::Finished(s, r)) =
+        } else if let (tui::Event::Key(key), SearchState::Finished(_, r)) =
             (&evt, &self.search_state)
         {
             match key.code {
-                KeyCode::Char('n') => return Some(Action::SearchNext(s.clone(), r.clone())),
-                KeyCode::Char('N') => return Some(Action::SearchPrev(s.clone(), r.clone())),
+                KeyCode::Char('n') => return Some(Action::SearchNext(r.clone())),
+                KeyCode::Char('N') => return Some(Action::SearchPrev(r.clone())),
                 _ => {}
             }
         }

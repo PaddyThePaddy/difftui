@@ -27,7 +27,7 @@ pub struct TextCmpView<'a> {
     horzontal_scroll: usize,
     title: String,
     page_height: Option<u16>,
-    highlight: Option<(String, Regex)>,
+    highlight: Option<Regex>,
 }
 
 impl<'a> Debug for TextCmpView<'a> {
@@ -203,8 +203,8 @@ impl<'a> EventHandler for TextCmpView<'a> {
                     }
                 }
             }
-            Action::SearchNext(s, r) => {
-                self.highlight = Some((s.clone(), r.clone()));
+            Action::SearchNext(r) => {
+                self.highlight = Some(r.clone());
                 if let Some(current) = self.sel.selected() {
                     let (ll, rl) = self.build_lines();
                     let mut idx = current + 1;
@@ -235,8 +235,8 @@ impl<'a> EventHandler for TextCmpView<'a> {
                     }
                 }
             }
-            Action::SearchPrev(s, r) => {
-                self.highlight = Some((s.clone(), r.clone()));
+            Action::SearchPrev(r) => {
+                self.highlight = Some(r.clone());
                 if let Some(current) = self.sel.selected() {
                     let (ll, rl) = self.build_lines();
                     let mut idx = current;

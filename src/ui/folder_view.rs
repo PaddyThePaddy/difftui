@@ -29,7 +29,7 @@ pub struct FolderViewState {
     items_full_name: Vec<PathBuf>,
     horizontal_scroll: usize,
     page_height: Option<u16>,
-    highlight: Option<(String, Regex)>,
+    highlight: Option<Regex>,
 }
 
 static NORMAL_LIST_STYLE: LazyLock<Style> = LazyLock::new(|| Style::default());
@@ -211,8 +211,8 @@ impl EventHandler for FolderViewState {
                     }
                 }
             }
-            Action::SearchNext(s, r) => {
-                self.highlight = Some((s.clone(), r.clone()));
+            Action::SearchNext(r) => {
+                self.highlight = Some(r.clone());
                 if let Some(current) = self.selection.selected() {
                     let mut idx = current + 1;
                     while let Some(p) = self.get_item_full_name(idx) {
@@ -244,8 +244,8 @@ impl EventHandler for FolderViewState {
                     }
                 }
             }
-            Action::SearchPrev(s, r) => {
-                self.highlight = Some((s.clone(), r.clone()));
+            Action::SearchPrev(r) => {
+                self.highlight = Some(r.clone());
                 if let Some(current) = self.selection.selected() {
                     let mut idx = current;
                     if idx != 0 {
