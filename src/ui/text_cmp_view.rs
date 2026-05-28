@@ -115,6 +115,39 @@ impl<'a> TextCmpView<'a> {
         }
         title
     }
+
+    fn build_lines(&self) -> (Vec<Option<String>>, Vec<Option<String>>) {
+        let inline_diff = self.diff.iter_all_changes().collect::<Vec<_>>();
+        let mut lhs_list = vec![];
+        let mut rhs_list = vec![];
+
+        for change in inline_diff.iter() {
+            if change.tag() == ChangeTag::Equal {
+                while lhs_list.len() < rhs_list.len() {
+                    lhs_list.push(None);
+                }
+                while lhs_list.len() > rhs_list.len() {
+                    rhs_list.push(None);
+                }
+            }
+            let text = change.value();
+
+            if let Some(_) = change.old_index() {
+                lhs_list.push(Some(text.to_string()));
+            }
+            if let Some(_) = change.new_index() {
+                rhs_list.push(Some(text.to_string()));
+            }
+        }
+
+        while lhs_list.len() < rhs_list.len() {
+            lhs_list.push(None);
+        }
+        while lhs_list.len() > rhs_list.len() {
+            rhs_list.push(None);
+        }
+        (lhs_list, rhs_list)
+    }
 }
 
 impl<'a> EventHandler for TextCmpView<'a> {
@@ -173,28 +206,28 @@ impl<'a> EventHandler for TextCmpView<'a> {
             Action::SearchNext(s, r) => {
                 self.highlight = Some((s.clone(), r.clone()));
                 if let Some(current) = self.sel.selected() {
-                    let lines = self
-                        .diff
-                        .iter_all_changes()
-                        .map(|c| c.value())
-                        .collect::<Vec<_>>();
+                    let (ll, rl) = self.build_lines();
                     let mut idx = current + 1;
-                    while let Some(line) = lines.get(idx) {
-                        if r.is_match(line) {
+                    while let Some((ll, rl)) = ll.get(idx).zip(rl.get(idx)) {
+                        if ll.as_ref().is_some_and(|l| r.is_match(l))
+                            || rl.as_ref().is_some_and(|l| r.is_match(l))
+                        {
                             self.sel.select(Some(idx));
                             return Ok(None);
                         }
                         idx += 1;
                     }
                     idx = 0;
-                    while let Some(line) = lines.get(idx) {
+                    while let Some((ll, rl)) = ll.get(idx).zip(rl.get(idx)) {
                         if idx == current {
                             return Ok(Some(Action::Notification(Notification {
                                 title: "Search".to_string(),
                                 body: "No matches found".to_string(),
                             })));
                         }
-                        if r.is_match(line) {
+                        if ll.as_ref().is_some_and(|l| r.is_match(l))
+                            || rl.as_ref().is_some_and(|l| r.is_match(l))
+                        {
                             self.sel.select(Some(idx));
                             return Ok(None);
                         }
@@ -205,31 +238,31 @@ impl<'a> EventHandler for TextCmpView<'a> {
             Action::SearchPrev(s, r) => {
                 self.highlight = Some((s.clone(), r.clone()));
                 if let Some(current) = self.sel.selected() {
-                    let lines = self
-                        .diff
-                        .iter_all_changes()
-                        .map(|c| c.value())
-                        .collect::<Vec<_>>();
+                    let (ll, rl) = self.build_lines();
                     let mut idx = current;
                     if idx != 0 {
                         idx -= 1;
-                        while let Some(line) = lines.get(idx) {
-                            if r.is_match(line) {
+                        while let Some((ll, rl)) = ll.get(idx).zip(rl.get(idx)) {
+                            if ll.as_ref().is_some_and(|l| r.is_match(l))
+                                || rl.as_ref().is_some_and(|l| r.is_match(l))
+                            {
                                 self.sel.select(Some(idx));
                                 return Ok(None);
                             }
                             idx -= 1;
                         }
                     }
-                    idx = lines.len() - 1;
-                    while let Some(line) = lines.get(idx) {
+                    idx = ll.len() - 1;
+                    while let Some((ll, rl)) = ll.get(idx).zip(rl.get(idx)) {
                         if idx == current {
                             return Ok(Some(Action::Notification(Notification {
                                 title: "Search".to_string(),
                                 body: "No matches found".to_string(),
                             })));
                         }
-                        if r.is_match(line) {
+                        if ll.as_ref().is_some_and(|l| r.is_match(l))
+                            || rl.as_ref().is_some_and(|l| r.is_match(l))
+                        {
                             self.sel.select(Some(idx));
                             return Ok(None);
                         }
