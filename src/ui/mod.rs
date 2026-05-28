@@ -64,6 +64,7 @@ pub enum Action {
     EditSearch,
     SearchNext(Regex),
     SearchPrev(Regex),
+    RemoveHighlight,
 }
 
 impl TryFrom<&Event> for Action {
@@ -113,6 +114,7 @@ impl TryFrom<KeyEvent> for Action {
                 KeyCode::Char('[') => Ok(Self::PrevDiff),
                 KeyCode::Char('?') | KeyCode::F(1) => Ok(Self::ShowHelp),
                 KeyCode::Char('/') => Ok(Self::EditSearch),
+                KeyCode::Esc => Ok(Self::RemoveHighlight),
                 _ => Err(()),
             }
         } else {
@@ -302,6 +304,9 @@ impl App {
     ) -> Result<Option<Action>, DiffTuiError> {
         if let Action::PopupReturn(_, _) = act {
             self.popup = None;
+        }
+        if let Action::RemoveHighlight = act {
+            self.search_state = SearchState::None;
         }
         match act {
             Action::ShowPopup(popup) => {

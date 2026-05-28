@@ -511,6 +511,8 @@ impl EventHandler for FolderCmpState {
                     }
                     Action::SearchNext(r) => {
                         self.highlight = Some(r.clone());
+                        self.lhs_state.set_hl(Some(r.clone()));
+                        self.rhs_state.set_hl(Some(r.clone()));
                         if let Some(current) = list_state.selected() {
                             let mut idx = current + 1;
                             while let Some(p) = self.lhs_state.get_item_full_name(idx) {
@@ -588,6 +590,11 @@ impl EventHandler for FolderCmpState {
                                 idx -= 1;
                             }
                         }
+                    }
+                    Action::RemoveHighlight => {
+                        self.highlight = None;
+                        self.lhs_state.set_hl(None);
+                        self.rhs_state.set_hl(None);
                     }
                     _ => {}
                 }

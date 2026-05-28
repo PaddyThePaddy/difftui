@@ -270,6 +270,9 @@ impl<'a> EventHandler for TextCmpView<'a> {
                     }
                 }
             }
+            Action::RemoveHighlight => {
+                self.highlight = None;
+            }
             _ => {}
         }
         Ok(None)

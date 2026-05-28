@@ -10,10 +10,11 @@ use ratatui::{
     layout::Rect,
     style::{Color, Style},
     symbols::merge::MergeStrategy,
+    text::{Line, Span, Text},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, StatefulWidget, Widget},
 };
 use regex::Regex;
-use tracing::trace;
+use tracing::{error, trace};
 
 use crate::{
     diff::{DiffSide, DiffState, dir::DirDiffTree},
@@ -142,6 +143,10 @@ impl FolderViewState {
     pub fn len(&self) -> usize {
         self.items_full_name.len()
     }
+
+    pub fn set_hl(&mut self, pattern: Option<Regex>) {
+        self.highlight = pattern;
+    }
 }
 
 impl EventHandler for FolderViewState {
@@ -213,6 +218,7 @@ impl EventHandler for FolderViewState {
             }
             Action::SearchNext(r) => {
                 self.highlight = Some(r.clone());
+                error!("highligh= {:?}", self.highlight);
                 if let Some(current) = self.selection.selected() {
                     let mut idx = current + 1;
                     while let Some(p) = self.get_item_full_name(idx) {
@@ -283,6 +289,9 @@ impl EventHandler for FolderViewState {
                     }
                 }
             }
+            Action::RemoveHighlight => {
+                self.highlight = None;
+            }
             _ => {}
         }
         Ok(None)
@@ -318,6 +327,7 @@ impl<'a> StatefulWidget for FolderView<'a> {
                     0,
                     state.side,
                     state.horizontal_scroll,
+                    state.highlight.as_ref(),
                 );
             }
 
@@ -357,6 +367,7 @@ impl<'a> FolderView<'a> {
         level: usize,
         side: DiffSide,
         horizontal_scroll: usize,
+        hl_pattern: Option<&Regex>,
     ) {
         let root = match tree.fs_tree().get(root_path) {
             Some(n) => n,
@@ -392,7 +403,24 @@ impl<'a> FolderView<'a> {
                 .nth(horizontal_scroll)
                 .map(|(i, _)| i)
                 .unwrap_or(item_str.len());
-            let list_item = ListItem::from(item_str[scroll_point..].to_string()).style(match ds {
+            let list_item = if let Some(hl_pat) = hl_pattern {
+                error!("highligh");
+                let mut text_objs = vec![];
+                let mut line_str = &item_str[scroll_point..];
+                for m in hl_pat.find_iter(line_str) {
+                    text_objs.push(Span::raw(line_str[..m.start()].to_string()));
+                    text_objs.push(Span::styled(
+                        m.as_str().to_string(),
+                        Style::default().on_light_red(),
+                    ));
+                    line_str = &line_str[m.end()..];
+                }
+                text_objs.push(Span::raw(line_str.to_string()));
+                ListItem::from(Line::from_iter(text_objs))
+            } else {
+                ListItem::from(item_str[scroll_point..].to_string())
+            }
+            .style(match ds {
                 DiffState::Unknown => NORMAL_LIST_STYLE.clone(),
                 DiffState::Orphan(_) => ORPHAN_LIST_STYLE.clone(),
                 DiffState::Different => DIFF_LIST_STYLE.clone(),
@@ -414,6 +442,7 @@ impl<'a> FolderView<'a> {
                     level + 1,
                     side,
                     horizontal_scroll,
+                    hl_pattern,
                 );
             }
         }
