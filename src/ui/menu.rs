@@ -122,6 +122,7 @@ impl Popup for Menu {
                 .block(
                     Block::bordered()
                         .border_type(ratatui::widgets::BorderType::Rounded)
+                        .border_style(Style::default().green())
                         .title(self.title.as_str()),
                 )
                 .highlight_style(Style::default().bg(Color::Blue)),
