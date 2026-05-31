@@ -5,6 +5,7 @@ use ratatui::{
     text::Span,
     widgets::{Block, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, Widget},
 };
+use regex::bytes::Regex;
 
 const DIV_EVERY_BYTES: usize = 8;
 
@@ -202,13 +203,54 @@ impl HexViewMode {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct HighlightGroup {
+    pub start: usize,
+    pub len: usize,
+    pub style: Style,
+}
+
+impl From<(usize, usize, Style)> for HighlightGroup {
+    fn from(value: (usize, usize, Style)) -> Self {
+        Self {
+            start: value.0,
+            len: value.1,
+            style: value.2,
+        }
+    }
+}
+
+impl HighlightGroup {
+    pub fn is_highlighted(&self, idx: usize) -> Option<Style> {
+        if idx >= self.start && idx < self.start + self.len {
+            Some(self.style)
+        } else {
+            None
+        }
+    }
+
+    pub fn extend_to_include(&mut self, idx: usize) {
+        if self.start > idx {
+            self.start = idx;
+        }
+
+        if self.end() <= idx {
+            self.len = idx - self.start + 1;
+        }
+    }
+
+    pub fn end(&self) -> usize {
+        self.start + self.len
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct HexView<'buf, 'blk, 'hl> {
     buf: &'buf [u8],
     style: HexViewStyle,
     block: Block<'blk>,
     has_scroll_bar: bool,
-    hl_groups: Option<&'hl [(usize, usize)]>,
+    hl_groups: Option<&'hl [HighlightGroup]>,
 }
 
 impl<'buf, 'blk, 'hl> HexView<'buf, 'blk, 'hl> {
@@ -237,15 +279,15 @@ impl<'buf, 'blk, 'hl> HexView<'buf, 'blk, 'hl> {
         self
     }
 
-    fn is_hl(&self, idx: usize) -> bool {
+    fn is_hl(&self, idx: usize) -> Option<Style> {
         if let Some(hl_groups) = self.hl_groups {
             for group in hl_groups.iter() {
-                if idx >= group.0 && idx <= group.0 + group.1 {
-                    return true;
+                if let Some(sty) = group.is_highlighted(idx) {
+                    return Some(sty);
                 }
             }
         }
-        false
+        None
     }
 
     fn render_hex_area(
@@ -275,8 +317,8 @@ impl<'buf, 'blk, 'hl> HexView<'buf, 'blk, 'hl> {
                     self.style.default
                 };
 
-                if self.is_hl(line_start + i) {
-                    byte_style = byte_style.red().not_dim();
+                if let Some(hl) = self.is_hl(line_start + i) {
+                    byte_style = hl;
                 }
 
                 if selected.is_some_and(|sel| sel == line_start + i) {
@@ -325,8 +367,8 @@ impl<'buf, 'blk, 'hl> HexView<'buf, 'blk, 'hl> {
         let mut position = Position::new(area.x, area.y);
         for i in 0..bytes_in_line {
             let byte_to_print = self.buf[line_start + i];
-            let mut style = if self.is_hl(line_start + i) {
-                Style::default().red()
+            let mut style = if let Some(hl) = self.is_hl(line_start + i) {
+                hl
             } else {
                 Style::default()
             };
@@ -349,7 +391,7 @@ impl<'buf, 'blk, 'hl> HexView<'buf, 'blk, 'hl> {
         }
     }
 
-    pub fn set_hl_groups(mut self, hl_groups: Option<&'hl [(usize, usize)]>) -> Self {
+    pub fn set_hl_groups(mut self, hl_groups: Option<&'hl [HighlightGroup]>) -> Self {
         self.hl_groups = hl_groups;
         self
     }
@@ -464,6 +506,8 @@ fn byte_to_display_char(n: u8) -> char {
 
 #[cfg(test)]
 mod test {
+    use regex::bytes::Regex;
+
     use crate::ui::hex_view::{HexViewMode, line_number_width, num_to_hex_chars};
 
     #[test]

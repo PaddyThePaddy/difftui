@@ -11,7 +11,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, List, ListState, StatefulWidget},
 };
-use regex::Regex;
+use regex::bytes::Regex;
 use similar::{ChangeTag, TextDiff};
 
 use crate::{
@@ -226,8 +226,8 @@ impl<'a> EventHandler for TextCmpView<'a> {
                     let (ll, rl) = self.build_lines();
                     let mut idx = current + 1;
                     while let Some((ll, rl)) = ll.get(idx).zip(rl.get(idx)) {
-                        if ll.as_ref().is_some_and(|l| r.is_match(l))
-                            || rl.as_ref().is_some_and(|l| r.is_match(l))
+                        if ll.as_ref().is_some_and(|l| r.is_match(l.as_bytes()))
+                            || rl.as_ref().is_some_and(|l| r.is_match(l.as_bytes()))
                         {
                             self.sel.select(Some(idx));
                             return Ok(None);
@@ -242,8 +242,8 @@ impl<'a> EventHandler for TextCmpView<'a> {
                                 body: "No matches found".to_string(),
                             })));
                         }
-                        if ll.as_ref().is_some_and(|l| r.is_match(l))
-                            || rl.as_ref().is_some_and(|l| r.is_match(l))
+                        if ll.as_ref().is_some_and(|l| r.is_match(l.as_bytes()))
+                            || rl.as_ref().is_some_and(|l| r.is_match(l.as_bytes()))
                         {
                             self.sel.select(Some(idx));
                             return Ok(None);
@@ -260,8 +260,8 @@ impl<'a> EventHandler for TextCmpView<'a> {
                     if idx != 0 {
                         idx -= 1;
                         while let Some((ll, rl)) = ll.get(idx).zip(rl.get(idx)) {
-                            if ll.as_ref().is_some_and(|l| r.is_match(l))
-                                || rl.as_ref().is_some_and(|l| r.is_match(l))
+                            if ll.as_ref().is_some_and(|l| r.is_match(l.as_bytes()))
+                                || rl.as_ref().is_some_and(|l| r.is_match(l.as_bytes()))
                             {
                                 self.sel.select(Some(idx));
                                 return Ok(None);
@@ -277,8 +277,8 @@ impl<'a> EventHandler for TextCmpView<'a> {
                                 body: "No matches found".to_string(),
                             })));
                         }
-                        if ll.as_ref().is_some_and(|l| r.is_match(l))
-                            || rl.as_ref().is_some_and(|l| r.is_match(l))
+                        if ll.as_ref().is_some_and(|l| r.is_match(l.as_bytes()))
+                            || rl.as_ref().is_some_and(|l| r.is_match(l.as_bytes()))
                         {
                             self.sel.select(Some(idx));
                             return Ok(None);

@@ -11,7 +11,10 @@ use std::{io::stdout, path::PathBuf, time::Duration};
 
 use crate::{
     DiffTuiError,
-    ui::{folder_cmp_view::FolderCmpState, hex_cmp_view::HexCmpView, text_cmp_view::TextCmpView, tui::pause_event_stream},
+    ui::{
+        folder_cmp_view::FolderCmpState, hex_cmp_view::HexCmpView, text_cmp_view::TextCmpView,
+        tui::pause_event_stream,
+    },
 };
 use crossterm::event::KeyEvent;
 use ratatui::{
@@ -26,7 +29,7 @@ use ratatui::{
     text::Span,
     widgets::{Block, Clear, Paragraph, Tabs, Widget},
 };
-use regex::{Regex, RegexBuilder};
+use regex::bytes::{Regex, RegexBuilder};
 use tracing::{error, trace};
 
 pub type TuiTerminal = ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>;
@@ -255,11 +258,12 @@ impl App {
                     self.search_state = SearchState::None;
                 }
                 KeyCode::Enter => {
-                    match RegexBuilder::new(s)
+                    match RegexBuilder::new(&format!("(?-u){s}"))
                         .case_insensitive(s.chars().all(|c| c.is_lowercase()))
                         .build()
                     {
                         Ok(r) => {
+                            trace!("Search pattern: {}", r.as_str());
                             self.search_state = SearchState::Finished(s.clone(), r.clone());
                             return Some(Action::SearchNext(r));
                         }

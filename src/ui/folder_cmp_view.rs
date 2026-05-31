@@ -15,7 +15,7 @@ use ratatui::{
     widgets::{Block, ListState, StatefulWidget, Widget as _},
 };
 use ratatui_textarea::{CursorMove, TextArea};
-use regex::Regex;
+use regex::bytes::Regex;
 use tracing::{error, trace};
 
 use crate::{
@@ -533,7 +533,7 @@ impl EventHandler for FolderCmpState {
                             while let Some(p) = self.lhs_state.get_item_full_name(idx) {
                                 if let Some(name) = p.file_name() {
                                     let name = name.to_string_lossy();
-                                    if r.is_match(&name) {
+                                    if r.is_match(name.as_bytes()) {
                                         list_state.select(Some(idx));
                                         *self.lhs_state.selected_mut() = *list_state;
                                         *self.rhs_state.selected_mut() = *list_state;
@@ -552,7 +552,7 @@ impl EventHandler for FolderCmpState {
                                 }
                                 if let Some(name) = p.file_name() {
                                     let name = name.to_string_lossy();
-                                    if r.is_match(&name) {
+                                    if r.is_match(name.as_bytes()) {
                                         list_state.select(Some(idx));
                                         *self.lhs_state.selected_mut() = *list_state;
                                         *self.rhs_state.selected_mut() = *list_state;
@@ -572,7 +572,7 @@ impl EventHandler for FolderCmpState {
                                 while let Some(p) = self.lhs_state.get_item_full_name(idx) {
                                     if let Some(name) = p.file_name() {
                                         let name = name.to_string_lossy();
-                                        if r.is_match(&name) {
+                                        if r.is_match(name.as_bytes()) {
                                             list_state.select(Some(idx));
                                             *self.lhs_state.selected_mut() = *list_state;
                                             *self.rhs_state.selected_mut() = *list_state;
@@ -595,7 +595,7 @@ impl EventHandler for FolderCmpState {
                                 }
                                 if let Some(name) = p.file_name() {
                                     let name = name.to_string_lossy();
-                                    if r.is_match(&name) {
+                                    if r.is_match(name.as_bytes()) {
                                         list_state.select(Some(idx));
                                         *self.lhs_state.selected_mut() = *list_state;
                                         *self.rhs_state.selected_mut() = *list_state;

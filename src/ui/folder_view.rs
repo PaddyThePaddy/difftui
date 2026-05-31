@@ -13,7 +13,7 @@ use ratatui::{
     text::{Line, Span, Text},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, StatefulWidget, Widget},
 };
-use regex::Regex;
+use regex::bytes::Regex;
 use tracing::{error, trace};
 
 use crate::{
@@ -224,7 +224,7 @@ impl EventHandler for FolderViewState {
                     while let Some(p) = self.get_item_full_name(idx) {
                         if let Some(name) = p.file_name() {
                             let name = name.to_string_lossy();
-                            if r.is_match(&name) {
+                            if r.is_match(name.as_bytes()) {
                                 self.selection.select(Some(idx));
                                 return Ok(None);
                             }
@@ -241,7 +241,7 @@ impl EventHandler for FolderViewState {
                         }
                         if let Some(name) = p.file_name() {
                             let name = name.to_string_lossy();
-                            if r.is_match(&name) {
+                            if r.is_match(name.as_bytes()) {
                                 self.selection.select(Some(idx));
                                 return Ok(None);
                             }
@@ -259,7 +259,7 @@ impl EventHandler for FolderViewState {
                         while let Some(p) = self.get_item_full_name(idx) {
                             if let Some(name) = p.file_name() {
                                 let name = name.to_string_lossy();
-                                if r.is_match(&name) {
+                                if r.is_match(name.as_bytes()) {
                                     self.selection.select(Some(idx));
                                     return Ok(None);
                                 }
@@ -280,7 +280,7 @@ impl EventHandler for FolderViewState {
                         }
                         if let Some(name) = p.file_name() {
                             let name = name.to_string_lossy();
-                            if r.is_match(&name) {
+                            if r.is_match(name.as_bytes()) {
                                 self.selection.select(Some(idx));
                                 return Ok(None);
                             }
@@ -404,13 +404,12 @@ impl<'a> FolderView<'a> {
                 .map(|(i, _)| i)
                 .unwrap_or(item_str.len());
             let list_item = if let Some(hl_pat) = hl_pattern {
-                error!("highligh");
                 let mut text_objs = vec![];
                 let mut line_str = &item_str[scroll_point..];
-                for m in hl_pat.find_iter(line_str) {
+                for m in hl_pat.find_iter(line_str.as_bytes()) {
                     text_objs.push(Span::raw(line_str[..m.start()].to_string()));
                     text_objs.push(Span::styled(
-                        m.as_str().to_string(),
+                        String::from_utf8_lossy(m.as_bytes()).to_string(),
                         Style::default().on_light_red(),
                     ));
                     line_str = &line_str[m.end()..];
