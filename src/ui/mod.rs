@@ -1,16 +1,17 @@
-mod folder_cmp_view;
-mod folder_view;
-mod hex_cmp_view;
-mod loading_msg;
-mod menu;
-mod text_cmp_view;
-mod tui;
+pub mod folder_cmp_view;
+pub mod folder_view;
+pub mod hex_cmp_view;
+pub mod hex_view;
+pub mod loading_msg;
+pub mod menu;
+pub mod text_cmp_view;
+pub mod tui;
 
 use std::{io::stdout, path::PathBuf, time::Duration};
 
 use crate::{
     DiffTuiError,
-    ui::{folder_cmp_view::FolderCmpState, text_cmp_view::TextCmpView, tui::pause_event_stream},
+    ui::{folder_cmp_view::FolderCmpState, hex_cmp_view::HexCmpView, text_cmp_view::TextCmpView, tui::pause_event_stream},
 };
 use crossterm::event::KeyEvent;
 use ratatui::{
@@ -446,14 +447,25 @@ impl App {
     }
 }
 
-pub fn start_tui(lhs: PathBuf, rhs: PathBuf) -> Result<(), DiffTuiError> {
+#[derive(Debug, Clone, Copy, Default)]
+pub enum OpenWith {
+    #[default]
+    Auto,
+    HexView,
+    TextView,
+}
+
+pub fn start_tui(lhs: PathBuf, rhs: PathBuf, open_with: OpenWith) -> Result<(), DiffTuiError> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_time()
         .build()
         .unwrap();
     rt.block_on(async move {
         let first_tab: Box<dyn TabState> = if lhs.metadata()?.is_file() {
-            Box::new(TextCmpView::new(lhs, rhs)?)
+            match open_with {
+                OpenWith::HexView => Box::new(HexCmpView::new(lhs, rhs)?),
+                _ => Box::new(TextCmpView::new(lhs, rhs)?),
+            }
         } else {
             Box::new(FolderCmpState::new(lhs, rhs)?)
         };
