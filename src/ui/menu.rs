@@ -125,7 +125,7 @@ impl Popup for Menu {
                         .border_style(Style::default().green())
                         .title(self.title.as_str()),
                 )
-                .highlight_style(Style::default().reversed()),
+                .highlight_style(Style::default().bg(Color::Blue)),
             area,
             buf,
             &mut self.sel,
