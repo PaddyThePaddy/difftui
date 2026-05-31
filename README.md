@@ -37,4 +37,4 @@ cargo install https://github.com/PaddyThePaddy/difftui --locked
 - Diff binary files with `similar` crate
 - Search highlight in text compare view
 - Config file and configurable keymap
-- Proper cli option, especially disabling git ignore
+- Proper cli option, especially flags to disabling or configure git ignore
