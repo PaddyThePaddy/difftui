@@ -1,4 +1,4 @@
-use std::{path::PathBuf, str::FromStr};
+use std::path::PathBuf;
 
 use crossterm::event::KeyCode;
 use ratatui::{
@@ -16,6 +16,7 @@ use crate::{
     DiffTuiError,
     ui::{
         self, EventHandler, Notification, Popup, TabState,
+        folder_cmp_view::FolderCmpState,
         hex_view::{HexView, HexViewState, HighlightGroup},
         menu::Menu,
         text_cmp_view::TextCmpView,
@@ -240,13 +241,27 @@ impl EventHandler for HexCmpView {
                 self.rhs_state.set_selected(Some(usize::MAX));
             }
             Action::TabCustomAction => {
+                let mut opts = vec![
+                    ("Reopen with text cmp view".to_string(), Some('t')),
+                    ("Search for guid".to_string(), Some('g')),
+                    ("Search for bytes".to_string(), Some('b')),
+                ];
+
+                if self
+                    .lhs_path
+                    .parent()
+                    .zip(self.rhs_path.parent())
+                    .is_some_and(|(l, r)| l.exists() && r.exists() && l.is_dir() && r.is_dir())
+                {
+                    opts.push((
+                        "Open parent folder in folder cmp view".to_string(),
+                        Some('p'),
+                    ));
+                }
+
                 return Ok(Some(Action::ShowPopup(Box::new(Menu::new(
                     "HexCmpView action".to_string(),
-                    vec![
-                        ("Reopen with text cmp view".to_string(), Some('t')),
-                        ("Search for guid".to_string(), Some('g')),
-                        ("Search for bytes".to_string(), Some('b')),
-                    ],
+                    opts,
                 )))));
             }
             Action::PopupReturn(id, Some(item)) if id == "HexCmpView action" => {
@@ -261,6 +276,14 @@ impl EventHandler for HexCmpView {
                     }
                     "Search for bytes" => {
                         return Ok(Some(Action::ShowPopup(Box::new(BytesInput::default()))));
+                    }
+                    "Open parent folder in folder cmp view" => {
+                        if let Some((lhs, rhs)) = self.lhs_path.parent().zip(self.rhs_path.parent())
+                        {
+                            return Ok(Some(Action::CreateTabAndSwitch(Box::new(
+                                FolderCmpState::new(lhs, rhs)?,
+                            ))));
+                        }
                     }
                     _ => {}
                 }

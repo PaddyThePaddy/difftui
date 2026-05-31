@@ -226,145 +226,148 @@ impl EventHandler for FolderCmpState {
                     self.filter_text.clone(),
                 ))))));
             }
-            Action::PopupReturn(id, body) => {
-                if id == FilterPopup::ID_FILTER_CONFIRMED {
-                    if let Some(body) = body {
-                        let mut glob_builder = GlobSetBuilder::new();
-                        let lines: Vec<String> = body.lines().map(|s| s.to_string()).collect();
+            Action::PopupReturn(id, Some(body)) if id == FilterPopup::ID_FILTER_CONFIRMED => {
+                let mut glob_builder = GlobSetBuilder::new();
+                let lines: Vec<String> = body.lines().map(|s| s.to_string()).collect();
 
-                        for line in lines.iter() {
-                            let line = line.trim();
-                            if line.is_empty() {
-                                continue;
-                            }
-                            let glob = match Glob::new(line) {
-                                Ok(g) => g,
-                                Err(e) => {
-                                    return Ok(Some(Action::Notification(Notification {
-                                        title: "Error".to_string(),
-                                        body: format!("Parsing glob failed: {e}"),
-                                    })));
-                                }
-                            };
-                            glob_builder.add(glob);
+                for line in lines.iter() {
+                    let line = line.trim();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    let glob = match Glob::new(line) {
+                        Ok(g) => g,
+                        Err(e) => {
+                            return Ok(Some(Action::Notification(Notification {
+                                title: "Error".to_string(),
+                                body: format!("Parsing glob failed: {e}"),
+                            })));
                         }
-                        let filters = match glob_builder.build() {
-                            Ok(f) => f,
-                            Err(e) => {
-                                return Ok(Some(Action::Notification(Notification {
-                                    title: "Error".to_string(),
-                                    body: format!("Build glob set failed: {e}"),
-                                })));
-                            }
-                        };
-                        self.filter_text = lines;
-                        self.set_filters(filters);
+                    };
+                    glob_builder.add(glob);
+                }
+                let filters = match glob_builder.build() {
+                    Ok(f) => f,
+                    Err(e) => {
+                        return Ok(Some(Action::Notification(Notification {
+                            title: "Error".to_string(),
+                            body: format!("Build glob set failed: {e}"),
+                        })));
+                    }
+                };
+                self.filter_text = lines;
+                self.set_filters(filters);
+            }
+            Action::PopupReturn(id, Some(body)) if id == "Open" => match body.as_str() {
+                "neovim diff" => {
+                    if let Some((lhs, rhs)) = self
+                        .lhs_state
+                        .selected_path()
+                        .zip(self.rhs_state.selected_path())
+                    {
+                        let lhs_path = self.lhs_path.join(lhs);
+                        let rhs_path = self.rhs_path.join(rhs);
+                        let mut cmd = std::process::Command::new("nvim");
+                        cmd.arg("-d").arg(lhs_path).arg(rhs_path);
+                        return Ok(Some(Action::RunExtApp(cmd)));
                     }
                     return Ok(None);
-                } else if id == "Open" {
-                    if let Some(body) = body {
-                        match body.as_str() {
-                            "neovim diff" => {
-                                if let Some((lhs, rhs)) = self
-                                    .lhs_state
-                                    .selected_path()
-                                    .zip(self.rhs_state.selected_path())
-                                {
-                                    let lhs_path = self.lhs_path.join(lhs);
-                                    let rhs_path = self.rhs_path.join(rhs);
-                                    let mut cmd = std::process::Command::new("nvim");
-                                    cmd.arg("-d").arg(lhs_path).arg(rhs_path);
-                                    return Ok(Some(Action::RunExtApp(cmd)));
-                                }
-                                return Ok(None);
-                            }
-                            "new tab" => {
-                                if let Some((lhs, rhs)) = self
-                                    .lhs_state
-                                    .selected_path()
-                                    .zip(self.rhs_state.selected_path())
-                                {
-                                    let lhs = self.lhs_path.join(lhs);
-                                    let rhs = self.rhs_path.join(rhs);
-                                    return Ok(Some(Action::CreateTabAndSwitch(Box::new(
-                                        FolderCmpState::new(lhs, rhs)?,
-                                    ))));
-                                }
-                            }
-                            "new file tab" => {
-                                if let Some((lhs, rhs)) = self
-                                    .lhs_state
-                                    .selected_path()
-                                    .zip(self.rhs_state.selected_path())
-                                {
-                                    let lhs = self.lhs_path.join(lhs);
-                                    let rhs = self.rhs_path.join(rhs);
-                                    return Ok(Some(Action::CreateTabAndSwitch(Box::new(
-                                        TextCmpView::new(lhs, rhs)?,
-                                    ))));
-                                }
-                            }
-                            "new hex tab" => {
-                                if let Some((lhs, rhs)) = self
-                                    .lhs_state
-                                    .selected_path()
-                                    .zip(self.rhs_state.selected_path())
-                                {
-                                    let lhs = self.lhs_path.join(lhs);
-                                    let rhs = self.rhs_path.join(rhs);
-                                    return Ok(Some(Action::CreateTabAndSwitch(Box::new(
-                                        HexCmpView::new(lhs, rhs)?,
-                                    ))));
-                                }
-                            }
-                            _ => {
-                                return Ok(Some(Action::Notification(Notification {
-                                    title: "Unknown option".to_string(),
-                                    body: format!("Unknown body: {body}"),
-                                })));
-                            }
+                }
+                "new tab" => {
+                    if let Some((lhs, rhs)) = self
+                        .lhs_state
+                        .selected_path()
+                        .zip(self.rhs_state.selected_path())
+                    {
+                        let lhs = self.lhs_path.join(lhs);
+                        let rhs = self.rhs_path.join(rhs);
+                        return Ok(Some(Action::CreateTabAndSwitch(Box::new(
+                            FolderCmpState::new(lhs, rhs)?,
+                        ))));
+                    }
+                }
+                "new file tab" => {
+                    if let Some((lhs, rhs)) = self
+                        .lhs_state
+                        .selected_path()
+                        .zip(self.rhs_state.selected_path())
+                    {
+                        let lhs = self.lhs_path.join(lhs);
+                        let rhs = self.rhs_path.join(rhs);
+                        return Ok(Some(Action::CreateTabAndSwitch(Box::new(
+                            TextCmpView::new(lhs, rhs)?,
+                        ))));
+                    }
+                }
+                "new hex tab" => {
+                    if let Some((lhs, rhs)) = self
+                        .lhs_state
+                        .selected_path()
+                        .zip(self.rhs_state.selected_path())
+                    {
+                        let lhs = self.lhs_path.join(lhs);
+                        let rhs = self.rhs_path.join(rhs);
+                        return Ok(Some(Action::CreateTabAndSwitch(Box::new(HexCmpView::new(
+                            lhs, rhs,
+                        )?))));
+                    }
+                }
+                _ => {
+                    return Ok(Some(Action::Notification(Notification {
+                        title: "Unknown option".to_string(),
+                        body: format!("Unknown body: {body}"),
+                    })));
+                }
+            },
+            Action::PopupReturn(id, Some(body)) if id == "Compare" => match body.as_str() {
+                "Selected" => {
+                    if let Some(selected_p) = self.lhs_state.selected_path() {
+                        if self.cmp_in_progress.is_some() {
+                            error!("There is a comparison in progress");
+                        } else {
+                            let tree = self.tree.clone();
+                            let p = selected_p.clone();
+                            self.cmp_in_progress = Some(std::thread::spawn(move || {
+                                tree.cmp_node(&p)?;
+                                return Ok::<(), DiffTuiError>(());
+                            }));
                         }
                     }
-                } else if id == "Compare" {
-                    if let Some(body) = body {
-                        match body.as_str() {
-                            "Selected" => {
-                                if let Some(selected_p) = self.lhs_state.selected_path() {
-                                    if self.cmp_in_progress.is_some() {
-                                        error!("There is a comparison in progress");
-                                    } else {
-                                        let tree = self.tree.clone();
-                                        let p = selected_p.clone();
-                                        self.cmp_in_progress =
-                                            Some(std::thread::spawn(move || {
-                                                tree.cmp_node(&p)?;
-                                                return Ok::<(), DiffTuiError>(());
-                                            }));
-                                    }
-                                }
-                            }
-                            "All" => {
-                                if self.cmp_in_progress.is_some() {
-                                    error!("There is a comparison in progress");
-                                    return Ok(Some(Action::Notification(Notification {
-                                        title: "Abort".to_string(),
-                                        body: "There is a comparison in progress".to_string(),
-                                    })));
-                                } else {
-                                    let tree = if let Some(tree) = &self.filtered_tree {
-                                        trace!("Comparing filtered tree");
-                                        tree.clone()
-                                    } else {
-                                        self.tree.clone()
-                                    };
-                                    self.cmp_in_progress = Some(std::thread::spawn(move || {
-                                        tree.cmp_node(Path::new(""))?;
-                                        return Ok::<(), DiffTuiError>(());
-                                    }));
-                                }
-                            }
-                            _ => {}
+                }
+                "All" => {
+                    if self.cmp_in_progress.is_some() {
+                        error!("There is a comparison in progress");
+                        return Ok(Some(Action::Notification(Notification {
+                            title: "Abort".to_string(),
+                            body: "There is a comparison in progress".to_string(),
+                        })));
+                    } else {
+                        let tree = if let Some(tree) = &self.filtered_tree {
+                            trace!("Comparing filtered tree");
+                            tree.clone()
+                        } else {
+                            self.tree.clone()
+                        };
+                        self.cmp_in_progress = Some(std::thread::spawn(move || {
+                            tree.cmp_node(Path::new(""))?;
+                            return Ok::<(), DiffTuiError>(());
+                        }));
+                    }
+                }
+                _ => {}
+            },
+            Action::PopupReturn(id, Some(body)) if id == "FolderCmpView action" => {
+                match body.as_str() {
+                    "Open parent folder in folder cmp view" => {
+                        if let Some((lhs, rhs)) = self.lhs_path.parent().zip(self.rhs_path.parent())
+                        {
+                            return Ok(Some(Action::CreateTabAndSwitch(Box::new(
+                                FolderCmpState::new(lhs, rhs)?,
+                            ))));
                         }
+                    }
+                    _ => {
+                        return Ok(None);
                     }
                 }
             }
@@ -395,6 +398,30 @@ impl EventHandler for FolderCmpState {
                         .vim_key(true)
                         .select(Some(0)),
                 ))));
+            }
+            Action::TabCustomAction => {
+                let mut opts = vec![];
+
+                if self
+                    .lhs_path
+                    .parent()
+                    .zip(self.rhs_path.parent())
+                    .is_some_and(|(l, r)| l.exists() && r.exists() && l.is_dir() && r.is_dir())
+                {
+                    opts.push((
+                        "Open parent folder in folder cmp view".to_string(),
+                        Some('p'),
+                    ));
+                }
+
+                if opts.is_empty() {
+                    return Ok(None);
+                }
+
+                return Ok(Some(Action::ShowPopup(Box::new(Menu::new(
+                    "FolderCmpView action".to_string(),
+                    opts,
+                )))));
             }
             _ => {}
         }

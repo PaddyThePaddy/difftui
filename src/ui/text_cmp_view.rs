@@ -16,7 +16,10 @@ use similar::{ChangeTag, TextDiff};
 
 use crate::{
     DiffTuiError,
-    ui::{Action, EventHandler, Notification, TabState, hex_cmp_view::HexCmpView, menu::Menu},
+    ui::{
+        Action, EventHandler, Notification, TabState, folder_cmp_view::FolderCmpState,
+        hex_cmp_view::HexCmpView, menu::Menu,
+    },
 };
 
 pub struct TextCmpView<'a> {
@@ -291,9 +294,21 @@ impl<'a> EventHandler for TextCmpView<'a> {
                 self.highlight = None;
             }
             Action::TabCustomAction => {
+                let mut opts = vec![("Reopen with hex cmp view".to_string(), Some('h'))];
+                if self
+                    .lhs_path
+                    .parent()
+                    .zip(self.rhs_path.parent())
+                    .is_some_and(|(l, r)| l.exists() && r.exists() && l.is_dir() && r.is_dir())
+                {
+                    opts.push((
+                        "Open parent folder in folder cmp view".to_string(),
+                        Some('p'),
+                    ));
+                }
                 return Ok(Some(Action::ShowPopup(Box::new(Menu::new(
                     "TextCmpView action".to_string(),
-                    vec![("Reopen with hex cmp view".to_string(), Some('h'))],
+                    opts,
                 )))));
             }
             Action::PopupReturn(id, Some(item)) if id == "TextCmpView action" => {
@@ -303,6 +318,14 @@ impl<'a> EventHandler for TextCmpView<'a> {
                             self.lhs_path.clone(),
                             self.rhs_path.clone(),
                         )?))));
+                    }
+                    "Open parent folder in folder cmp view" => {
+                        if let Some((lhs, rhs)) = self.lhs_path.parent().zip(self.rhs_path.parent())
+                        {
+                            return Ok(Some(Action::CreateTabAndSwitch(Box::new(
+                                FolderCmpState::new(lhs, rhs)?,
+                            ))));
+                        }
                     }
                     _ => {}
                 }
