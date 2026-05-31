@@ -334,7 +334,7 @@ impl<'a> StatefulWidget for FolderView<'a> {
             StatefulWidget::render(
                 List::new(list_items)
                     .scroll_padding(5)
-                    .highlight_style(Style::new().bg(Color::DarkGray))
+                    .highlight_style(Style::default().reversed())
                     .block(list_border),
                 area,
                 buf,

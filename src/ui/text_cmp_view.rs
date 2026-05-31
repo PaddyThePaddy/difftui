@@ -441,7 +441,7 @@ impl<'a> TabState for TextCmpView<'a> {
         let [lhs_area, rhs_area] = area.layout(&layout);
         List::new(lhs_list)
             .scroll_padding(5)
-            .highlight_style(Style::default().on_dark_gray())
+            .highlight_style(Style::default().reversed())
             .block(
                 Block::bordered()
                     .borders(Borders::all())
@@ -450,7 +450,7 @@ impl<'a> TabState for TextCmpView<'a> {
             .render(lhs_area, buf, &mut self.sel);
         List::new(rhs_list)
             .scroll_padding(5)
-            .highlight_style(Style::default().on_dark_gray())
+            .highlight_style(Style::default().reversed())
             .block(
                 Block::bordered()
                     .borders(Borders::all())
