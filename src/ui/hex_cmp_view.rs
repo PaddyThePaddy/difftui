@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::{
     DiffTuiError,
     ui::{
-        self, EventHandler, Notification, Popup, TabState,
+        self, EventHandler, Notification, Popup, SkipToPopup, TabState,
         folder_cmp_view::FolderCmpState,
         hex_view::{HexView, HexViewState, HighlightGroup},
         menu::Menu,
@@ -245,6 +245,7 @@ impl EventHandler for HexCmpView {
                     ("Reopen with text cmp view".to_string(), Some('t')),
                     ("Search for guid".to_string(), Some('g')),
                     ("Search for bytes".to_string(), Some('b')),
+                    ("Skip to offset".to_string(), Some(':')),
                 ];
 
                 if self
@@ -276,6 +277,9 @@ impl EventHandler for HexCmpView {
                     }
                     "Search for bytes" => {
                         return Ok(Some(Action::ShowPopup(Box::new(BytesInput::default()))));
+                    }
+                    "Skip to offset" => {
+                        return Ok(Some(Action::ShowPopup(Box::new(SkipToPopup::default()))));
                     }
                     "Open parent folder in folder cmp view" => {
                         if let Some((lhs, rhs)) = self.lhs_path.parent().zip(self.rhs_path.parent())
@@ -323,6 +327,37 @@ impl EventHandler for HexCmpView {
                         title: "Byte string search".to_string(),
                         body: "Not a valid byte string".to_string(),
                     })));
+                }
+            }
+            Action::PopupReturn(id, Some(item)) if id == "SkipTo" => {
+                let item = item.trim();
+
+                if let Some(item) = item.strip_prefix("0x") {
+                    match usize::from_str_radix(item, 16) {
+                        Ok(i) => {
+                            self.lhs_state.set_selected(Some(i));
+                            self.rhs_state.set_selected(Some(i));
+                            return Ok(None);
+                        }
+                        Err(e) => {
+                            return Ok(Some(Action::Notification(Notification {
+                                title: "Parse index failed".to_string(),
+                                body: format!("{e}"),
+                            })));
+                        }
+                    }
+                }
+                match usize::from_str_radix(item, 10) {
+                    Ok(i) => {
+                        self.lhs_state.set_selected(Some(i));
+                        self.rhs_state.set_selected(Some(i));
+                    }
+                    Err(e) => {
+                        return Ok(Some(Action::Notification(Notification {
+                            title: "Parse index failed".to_string(),
+                            body: format!("{e}"),
+                        })));
+                    }
                 }
             }
             Action::SwapSide => {

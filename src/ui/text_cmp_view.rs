@@ -17,7 +17,7 @@ use similar::{ChangeTag, TextDiff};
 use crate::{
     DiffTuiError,
     ui::{
-        Action, EventHandler, Notification, TabState, folder_cmp_view::FolderCmpState,
+        Action, EventHandler, Notification, SkipToPopup, TabState, folder_cmp_view::FolderCmpState,
         hex_cmp_view::HexCmpView, menu::Menu,
     },
 };
@@ -294,7 +294,10 @@ impl<'a> EventHandler for TextCmpView<'a> {
                 self.highlight = None;
             }
             Action::TabCustomAction => {
-                let mut opts = vec![("Reopen with hex cmp view".to_string(), Some('h'))];
+                let mut opts = vec![
+                    ("Reopen with hex cmp view".to_string(), Some('h')),
+                    ("Skip to line".to_string(), Some(':')),
+                ];
                 if self
                     .lhs_path
                     .parent()
@@ -327,7 +330,39 @@ impl<'a> EventHandler for TextCmpView<'a> {
                             ))));
                         }
                     }
+                    "Skip to line" => {
+                        return Ok(Some(Action::ShowPopup(Box::new(SkipToPopup::default()))));
+                    }
                     _ => {}
+                }
+            }
+            Action::PopupReturn(id, Some(item)) if id == "SkipTo" => {
+                let item = item.trim();
+
+                if let Some(item) = item.strip_prefix("0x") {
+                    match usize::from_str_radix(item, 16) {
+                        Ok(i) => {
+                            self.sel.select(Some(i));
+                            return Ok(None);
+                        }
+                        Err(e) => {
+                            return Ok(Some(Action::Notification(Notification {
+                                title: "Parse index failed".to_string(),
+                                body: format!("{e}"),
+                            })));
+                        }
+                    }
+                }
+                match usize::from_str_radix(item, 10) {
+                    Ok(i) => {
+                        self.sel.select(Some(i));
+                    }
+                    Err(e) => {
+                        return Ok(Some(Action::Notification(Notification {
+                            title: "Parse index failed".to_string(),
+                            body: format!("{e}"),
+                        })));
+                    }
                 }
             }
             Action::SwapSide => {

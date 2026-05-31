@@ -27,8 +27,10 @@ use ratatui::{
         terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
     },
     layout::{Constraint, Rect},
-    widgets::{Clear, Widget},
+    style::Style,
+    widgets::{Block, BorderType, Clear, Widget},
 };
+use ratatui_textarea::TextArea;
 use regex::bytes::Regex;
 use tracing::error;
 
@@ -158,6 +160,47 @@ pub trait Popup: std::fmt::Debug {
         let popup_area = area.centered(hor, ver);
         Clear::default().render(popup_area, buf);
         (popup_area, buf)
+    }
+}
+
+#[derive(Debug)]
+pub struct SkipToPopup<'a> {
+    ta: TextArea<'a>,
+}
+
+impl<'a> Default for SkipToPopup<'a> {
+    fn default() -> Self {
+        let mut ta = TextArea::default();
+        ta.set_block(
+            Block::bordered()
+                .title("Skip to")
+                .border_style(Style::default().magenta())
+                .border_type(BorderType::Rounded),
+        );
+        Self { ta }
+    }
+}
+
+impl<'a> Popup for SkipToPopup<'a> {
+    fn handler(&mut self, event: &tui::Event) -> Option<Action> {
+        if let tui::Event::Key(key_evt) = event {
+            if key_evt.code == KeyCode::Enter {
+                return Some(Action::PopupReturn(
+                    "SkipTo".to_string(),
+                    Some(self.ta.lines()[0].clone()),
+                ));
+            } else if key_evt.code == KeyCode::Esc {
+                return Some(Action::PopupReturn("SkipTo".to_string(), None));
+            } else {
+                self.ta.input(*key_evt);
+            }
+        }
+        None
+    }
+
+    fn render(&mut self, frame: &mut ratatui::prelude::Frame) {
+        let (area, buf) = self.prepare(frame, Constraint::Max(20), Constraint::Length(3));
+        self.ta.render(area, buf);
     }
 }
 
