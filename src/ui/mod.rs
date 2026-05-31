@@ -67,7 +67,7 @@ pub enum Action {
     ShowHelp,
     PageUp(f32),
     PageDown(f32),
-    EditSearch,
+    EditSearch(Option<String>),
     SearchNext(Regex),
     SearchPrev(Regex),
     RemoveHighlight,
@@ -123,7 +123,7 @@ impl TryFrom<KeyEvent> for Action {
                 KeyCode::Char(']') => Ok(Self::NextDiff),
                 KeyCode::Char('[') => Ok(Self::PrevDiff),
                 KeyCode::Char('?') | KeyCode::F(1) => Ok(Self::ShowHelp),
-                KeyCode::Char('/') => Ok(Self::EditSearch),
+                KeyCode::Char('/') => Ok(Self::EditSearch(None)),
                 KeyCode::Esc => Ok(Self::RemoveHighlight),
                 KeyCode::Char('x') => Ok(Self::SwapSide),
                 KeyCode::Char('z') => Ok(Self::TabCustomAction),
@@ -392,8 +392,12 @@ impl App {
                     .join("\n"),
                 })));
             }
-            Action::EditSearch => {
-                self.search_state = SearchState::Editing(String::new());
+            Action::EditSearch(s) => {
+                if let Some(s) = s {
+                    self.search_state = SearchState::Editing(s);
+                } else {
+                    self.search_state = SearchState::Editing(String::new());
+                }
                 return Ok(None);
             }
             Action::Reload => {
