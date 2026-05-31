@@ -26,8 +26,9 @@ use ratatui::{
         terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
     },
     layout::{Constraint, Direction, Layout, Rect},
+    style::Style,
     text::Span,
-    widgets::{Block, Clear, Paragraph, Tabs, Widget},
+    widgets::{Block, BorderType, Clear, Paragraph, Tabs, Widget},
 };
 use regex::bytes::{Regex, RegexBuilder};
 use tracing::{error, trace};
@@ -250,7 +251,10 @@ impl App {
     fn handle_event(&mut self, evt: tui::Event) -> Option<Action> {
         if let Some(_) = &self.showing_notify {
             if let tui::Event::Key(key) = evt {
-                if key.code == KeyCode::Enter || key.code == KeyCode::Esc {
+                if key.code == KeyCode::Enter
+                    || key.code == KeyCode::Esc
+                    || key.code == KeyCode::Char('q')
+                {
                     self.showing_notify = None;
                 }
             }
@@ -459,7 +463,13 @@ impl App {
 
         Clear::default().render(notify_area, buf);
         Paragraph::new(notify.body.as_str())
-            .block(Block::bordered().title(notify.title.as_str()))
+            .block(
+                Block::bordered()
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().light_red())
+                    .title(notify.title.as_str())
+                    .title_bottom("Esc / Enter / q to leave"),
+            )
             .render(notify_area, buf);
     }
 }
