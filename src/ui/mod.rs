@@ -70,6 +70,9 @@ pub enum Action {
     SearchNext(Regex),
     SearchPrev(Regex),
     RemoveHighlight,
+    SwapSide,
+    Reload,
+    TabCustomAction,
 }
 
 impl TryFrom<&Event> for Action {
@@ -98,6 +101,7 @@ impl TryFrom<KeyEvent> for Action {
         } else if value.modifiers == KeyModifiers::SHIFT {
             match value.code {
                 KeyCode::Char('G') => Ok(Self::NavBottom),
+                KeyCode::Char('R') => Ok(Self::Reload),
                 KeyCode::BackTab => Ok(Self::PrevTab),
                 _ => Err(()),
             }
@@ -120,6 +124,8 @@ impl TryFrom<KeyEvent> for Action {
                 KeyCode::Char('?') | KeyCode::F(1) => Ok(Self::ShowHelp),
                 KeyCode::Char('/') => Ok(Self::EditSearch),
                 KeyCode::Esc => Ok(Self::RemoveHighlight),
+                KeyCode::Char('x') => Ok(Self::SwapSide),
+                KeyCode::Char('z') => Ok(Self::TabCustomAction),
                 _ => Err(()),
             }
         } else {
@@ -135,6 +141,7 @@ pub trait EventHandler {
 pub trait TabState: EventHandler + std::fmt::Debug {
     fn title(&self) -> String;
     fn render(&mut self, area: Rect, buf: &mut Buffer);
+    fn reload(&mut self) -> Result<Option<Box<dyn TabState>>, DiffTuiError>;
 }
 
 pub trait Popup: std::fmt::Debug {
@@ -383,6 +390,12 @@ impl App {
             }
             Action::EditSearch => {
                 self.search_state = SearchState::Editing(String::new());
+                return Ok(None);
+            }
+            Action::Reload => {
+                if let Some(new_tab) = self.tabs[self.current_tab].reload()? {
+                    self.tabs[self.current_tab] = new_tab;
+                }
                 return Ok(None);
             }
             _ => {

@@ -14,6 +14,8 @@ use crate::{
     ui::{
         EventHandler, Notification, TabState,
         hex_view::{HexView, HexViewState, HighlightGroup},
+        menu::Menu,
+        text_cmp_view::TextCmpView,
     },
 };
 
@@ -233,6 +235,29 @@ impl EventHandler for HexCmpView {
                 self.lhs_state.set_selected(Some(usize::MAX));
                 self.rhs_state.set_selected(Some(usize::MAX));
             }
+            Action::TabCustomAction => {
+                return Ok(Some(Action::ShowPopup(Box::new(Menu::new(
+                    "HexCmpView action".to_string(),
+                    vec![("Reopen with text cmp view".to_string(), Some('t'))],
+                )))));
+            }
+            Action::PopupReturn(id, Some(item)) if id == "HexCmpView action" => {
+                match item.as_str() {
+                    "Reopen with text cmp view" => {
+                        return Ok(Some(Action::CreateTabAndSwitch(Box::new(
+                            TextCmpView::new(self.lhs_path.clone(), self.rhs_path.clone())?,
+                        ))));
+                    }
+                    _ => {}
+                }
+            }
+            Action::SwapSide => {
+                std::mem::swap(&mut self.lhs_buf, &mut self.rhs_buf);
+                std::mem::swap(&mut self.lhs_path, &mut self.rhs_path);
+                std::mem::swap(&mut self.lhs_search_hl, &mut self.rhs_search_hl);
+                std::mem::swap(&mut self.lhs_cached_hl, &mut self.rhs_cached_hl);
+                std::mem::swap(&mut self.lhs_state, &mut self.rhs_state);
+            }
             _ => {}
         }
         Ok(None)
@@ -271,6 +296,13 @@ impl TabState for HexCmpView {
             .set_hl_groups(self.rhs_cached_hl.as_ref().map(|v| v.as_slice()))
             .block(Block::bordered().merge_borders(MergeStrategy::Exact))
             .render(rhs_area, buf, &mut self.rhs_state);
+    }
+
+    fn reload(&mut self) -> Result<Option<Box<dyn TabState>>, DiffTuiError> {
+        Ok(Some(Box::new(HexCmpView::new(
+            self.lhs_path.clone(),
+            self.rhs_path.clone(),
+        )?)))
     }
 }
 

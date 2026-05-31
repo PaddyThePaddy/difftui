@@ -16,7 +16,7 @@ use similar::{ChangeTag, TextDiff};
 
 use crate::{
     DiffTuiError,
-    ui::{Action, EventHandler, Notification, TabState},
+    ui::{Action, EventHandler, Notification, TabState, hex_cmp_view::HexCmpView, menu::Menu},
 };
 
 pub struct TextCmpView<'a> {
@@ -290,6 +290,29 @@ impl<'a> EventHandler for TextCmpView<'a> {
             Action::RemoveHighlight => {
                 self.highlight = None;
             }
+            Action::TabCustomAction => {
+                return Ok(Some(Action::ShowPopup(Box::new(Menu::new(
+                    "TextCmpView action".to_string(),
+                    vec![("Reopen with hex cmp view".to_string(), Some('h'))],
+                )))));
+            }
+            Action::PopupReturn(id, Some(item)) if id == "TextCmpView action" => {
+                match item.as_str() {
+                    "Reopen with hex cmp view" => {
+                        return Ok(Some(Action::CreateTabAndSwitch(Box::new(HexCmpView::new(
+                            self.lhs_path.clone(),
+                            self.rhs_path.clone(),
+                        )?))));
+                    }
+                    _ => {}
+                }
+            }
+            Action::SwapSide => {
+                return Ok(Some(Action::Notification(Notification {
+                    title: "Unimplemented".to_string(),
+                    body: "Unimplemented".to_string(),
+                })));
+            }
             _ => {}
         }
         Ok(None)
@@ -434,5 +457,12 @@ impl<'a> TabState for TextCmpView<'a> {
                     .merge_borders(MergeStrategy::Exact),
             )
             .render(rhs_area, buf, &mut self.sel);
+    }
+
+    fn reload(&mut self) -> Result<Option<Box<dyn TabState>>, DiffTuiError> {
+        Ok(Some(Box::new(TextCmpView::new(
+            self.lhs_path.clone(),
+            self.rhs_path.clone(),
+        )?)))
     }
 }

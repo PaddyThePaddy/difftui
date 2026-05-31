@@ -425,7 +425,6 @@ impl<'a> FolderView<'a> {
                 DiffState::Different => DIFF_LIST_STYLE.clone(),
                 DiffState::Same => SAME_LIST_STYLE.clone(),
             });
-            trace!("Built list item");
 
             list.push(list_item);
         }

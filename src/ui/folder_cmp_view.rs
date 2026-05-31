@@ -611,6 +611,10 @@ impl EventHandler for FolderCmpState {
                         self.lhs_state.set_hl(None);
                         self.rhs_state.set_hl(None);
                     }
+                    Action::SwapSide => {
+                        std::mem::swap(&mut self.lhs_path, &mut self.rhs_path);
+                        std::mem::swap(&mut self.lhs_state, &mut self.rhs_state);
+                    }
                     _ => {}
                 }
 
@@ -673,6 +677,13 @@ impl TabState for FolderCmpState {
     fn render(&mut self, area: Rect, buf: &mut Buffer) {
         self.page_height = Some(area.height - 2);
         FolderCmpView::default().render(area, buf, self);
+    }
+
+    fn reload(&mut self) -> Result<Option<Box<dyn TabState>>, DiffTuiError> {
+        Ok(Some(Box::new(FolderCmpState::new(
+            self.lhs_path.as_path(),
+            self.rhs_path.as_path(),
+        )?)))
     }
 }
 
