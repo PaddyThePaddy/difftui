@@ -206,6 +206,7 @@ pub struct App {
     popup: Option<Box<dyn Popup>>,
     showing_notify: Option<Notification>,
     search_state: SearchState,
+    notify_scroll: (u16, u16),
 }
 
 impl App {
@@ -251,11 +252,23 @@ impl App {
     fn handle_event(&mut self, evt: tui::Event) -> Option<Action> {
         if let Some(_) = &self.showing_notify {
             if let tui::Event::Key(key) = evt {
-                if key.code == KeyCode::Enter
-                    || key.code == KeyCode::Esc
-                    || key.code == KeyCode::Char('q')
-                {
-                    self.showing_notify = None;
+                match key.code {
+                    KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => {
+                        self.showing_notify = None
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        self.notify_scroll.0 = self.notify_scroll.0.saturating_add(1);
+                    }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        self.notify_scroll.0 = self.notify_scroll.0.saturating_sub(1);
+                    }
+                    KeyCode::Left | KeyCode::Char('h') => {
+                        self.notify_scroll.1 = self.notify_scroll.1.saturating_sub(1);
+                    }
+                    KeyCode::Right | KeyCode::Char('l') => {
+                        self.notify_scroll.1 = self.notify_scroll.1.saturating_add(1);
+                    }
+                    _ => {}
                 }
             }
             return None;
@@ -331,6 +344,7 @@ impl App {
                 return Ok(None);
             }
             Action::Notification(notify) => {
+                self.notify_scroll = (0, 0);
                 self.showing_notify = Some(notify);
                 return Ok(None);
             }
@@ -381,6 +395,9 @@ impl App {
                         "g        => Move to top",
                         "G        => Move to bottom",
                         "f        => Filter files",
+                        "z        => Tab specific actions",
+                        "R        => Reload tab",
+                        "x        => Swap sides",
                         "/        => Search",
                         "n / N    => Search next/previous",
                         "][       => Next/Previous difference",
@@ -461,12 +478,22 @@ impl App {
     }
 
     fn render_notify(&self, frame: &mut Frame, notify: &Notification) {
+        let width = notify
+            .title
+            .len()
+            .max(notify.body.lines().map(|s| s.len()).max().unwrap_or(0))
+            + 4;
+        let height = notify.body.lines().count() + 2;
         let area = frame.area();
         let buf = frame.buffer_mut();
-        let notify_area = area.centered(Constraint::Percentage(50), Constraint::Percentage(50));
+        let notify_area = area.centered(
+            Constraint::Max(width as u16),
+            Constraint::Max(height as u16),
+        );
 
         Clear::default().render(notify_area, buf);
         Paragraph::new(notify.body.as_str())
+            .scroll(self.notify_scroll)
             .block(
                 Block::bordered()
                     .border_type(BorderType::Rounded)
@@ -507,6 +534,7 @@ pub fn start_tui(lhs: PathBuf, rhs: PathBuf, open_with: OpenWith) -> Result<(), 
             popup: None,
             showing_notify: None,
             search_state: SearchState::default(),
+            notify_scroll: (0, 0),
         };
         app.run().await.unwrap();
         Ok::<(), DiffTuiError>(())

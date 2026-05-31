@@ -4,9 +4,11 @@ BeyondCompare/meld alternative in tui
 
 ![demo](assets/demo.gif)
 
-## Status
+## Installation
 
-Somehow get compiled. Definitely don't use.
+```bash
+cargo install https://github.com/PaddyThePaddy/difftui --locked
+```
 
 ## Keymaps
 
@@ -19,6 +21,9 @@ Somehow get compiled. Definitely don't use.
 | `g`               | Move to top                  |
 | `G`               | Move to bottom               |
 | `f`               | Filter files                 |
+| `z`               | Tab specific actions         |
+| `R`               | Reload tab                   |
+| `x`               | Swap sides                   |
 | `/`               | Search                       |
 | `n` / `N`         | Search next/previous         |
 | `]`/`[`           | Next/Previous difference     |
@@ -26,3 +31,10 @@ Somehow get compiled. Definitely don't use.
 | Enter             | Expand/Collapse              |
 | Ctrl + `c`        | Exit app                     |
 | `?` / `F1`        | Show help                    |
+
+## To do
+
+- Diff binary files with `similar` crate
+- Search highlight in text compare view
+- Config file and configurable keymap
+- Proper cli option, especially disabling git ignore
