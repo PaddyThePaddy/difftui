@@ -381,7 +381,7 @@ impl<'a> FolderView<'a> {
         }
 
         if ds.is_orphan(side.oppsite()) {
-            list.push("".into());
+            list.push(ListItem::new("").style(ORPHAN_LIST_STYLE.clone()));
         } else {
             if root.metadata().is_dir() {
                 if self.expanded_pathes.contains(root_path) {
