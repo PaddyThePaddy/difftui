@@ -525,6 +525,8 @@ fn compare_diff_hunks(lhs: &[u8], rhs: &[u8]) -> Vec<HighlightGroup> {
         if let Some(last) = hunks.last_mut() {
             if last.end() == i {
                 last.extend_to_include(i);
+            } else {
+                hunks.push((i, 1, style).into());
             }
         } else {
             hunks.push((i, 1, style).into());
@@ -535,6 +537,8 @@ fn compare_diff_hunks(lhs: &[u8], rhs: &[u8]) -> Vec<HighlightGroup> {
         if let Some(last) = hunks.last_mut() {
             if last.end() == i {
                 last.extend_to_include(i);
+            } else {
+                hunks.push((i, 1, style).into());
             }
         } else {
             hunks.push((i, 1, style).into());
@@ -545,6 +549,8 @@ fn compare_diff_hunks(lhs: &[u8], rhs: &[u8]) -> Vec<HighlightGroup> {
         if let Some(last) = hunks.last_mut() {
             if last.end() == i {
                 last.extend_to_include(i);
+            } else {
+                hunks.push((i, 1, style).into());
             }
         } else {
             hunks.push((i, 1, style).into());
