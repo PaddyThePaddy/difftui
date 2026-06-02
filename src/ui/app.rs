@@ -341,6 +341,7 @@ impl App {
             .title
             .len()
             .max(notify.body.lines().map(|s| s.len()).max().unwrap_or(0))
+            .max("Esc / Enter / q to leave".len() + 2)
             + 4;
         let height = notify.body.lines().count() + 2;
         let area = frame.area();
@@ -356,7 +357,7 @@ impl App {
             .block(
                 Block::bordered()
                     .border_type(BorderType::Rounded)
-                    .border_style(Style::default().light_red())
+                    .border_style(Style::default().magenta())
                     .title(notify.title.as_str())
                     .title_bottom("Esc / Enter / q to leave"),
             )
