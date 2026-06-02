@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crossterm::event::KeyCode;
 use ratatui::{
@@ -28,6 +28,7 @@ use super::Action;
 
 #[derive(Debug)]
 pub struct HexCmpView {
+    title: String,
     lhs_path: PathBuf,
     rhs_path: PathBuf,
     lhs_buf: Vec<u8>,
@@ -50,6 +51,7 @@ impl HexCmpView {
         let diff_hl = compare_diff_hunks(&lhs_buf, &rhs_buf);
 
         Ok(Self {
+            title: build_title(lhs.as_path(), rhs.as_path()).unwrap_or("HEX".to_string()),
             lhs_path: lhs,
             rhs_path: rhs,
             lhs_buf,
@@ -375,7 +377,7 @@ impl EventHandler for HexCmpView {
 
 impl TabState for HexCmpView {
     fn title(&self) -> String {
-        "HEX".to_string()
+        self.title.clone()
     }
 
     fn render(&mut self, area: Rect, buf: &mut Buffer) {
@@ -421,6 +423,41 @@ impl TabState for HexCmpView {
             self.rhs_path.clone(),
         )?)))
     }
+}
+
+fn build_title(lhs: &Path, rhs: &Path) -> Option<String> {
+    let mut title: Option<String> = None;
+    if let Some((lhs_base, rhs_base)) = lhs.file_name().zip(rhs.file_name()) {
+        let lhs_base = lhs_base.to_string_lossy();
+        let rhs_base = rhs_base.to_string_lossy();
+        if lhs_base == rhs_base {
+            let lhs_parent = lhs.parent().and_then(|p| p.file_name());
+            let rhs_parent = rhs.parent().and_then(|p| p.file_name());
+            if lhs_parent == rhs_parent {
+                for (lhs_comp, rhs_comp) in lhs.components().rev().zip(rhs.components().rev()) {
+                    if lhs_comp != rhs_comp {
+                        let lhs_comp = lhs_comp.as_os_str().to_string_lossy();
+                        let rhs_comp = rhs_comp.as_os_str().to_string_lossy();
+                        title = Some(format!("{}<=>{}/../{}:X", lhs_comp, rhs_comp, lhs_base));
+                        break;
+                    }
+                }
+                if title.is_none() {
+                    title = Some(format!("{}:X", lhs_base));
+                }
+            } else {
+                title = Some(format!(
+                    "{}<=>{}/{}:X",
+                    lhs_parent.map(|s| s.to_str()).flatten().unwrap_or("\"\""),
+                    rhs_parent.map(|s| s.to_str()).flatten().unwrap_or("\"\""),
+                    lhs_base
+                ));
+            }
+        } else {
+            title = Some(format!("{}<=>{}:X", lhs_base, rhs_base));
+        }
+    }
+    title
 }
 
 #[derive(Debug)]
