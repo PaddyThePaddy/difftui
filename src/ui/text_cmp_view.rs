@@ -17,7 +17,7 @@ use similar::{ChangeTag, TextDiff};
 use crate::{
     DiffTuiError,
     ui::{
-        Action, EventHandler, Notification, SkipToPopup, TabState, folder_cmp_view::FolderCmpState,
+        Action, EventHandler, Notification, JumpToPopup, TabState, folder_cmp_view::FolderCmpState,
         hex_cmp_view::HexCmpView, menu::Menu,
     },
 };
@@ -296,7 +296,7 @@ impl<'a> EventHandler for TextCmpView<'a> {
             Action::TabCustomAction => {
                 let mut opts = vec![
                     ("Reopen with hex cmp view".to_string(), Some('h')),
-                    ("Skip to line".to_string(), Some(':')),
+                    ("Jump to line".to_string(), Some(':')),
                 ];
                 if self
                     .lhs_path
@@ -330,13 +330,13 @@ impl<'a> EventHandler for TextCmpView<'a> {
                             ))));
                         }
                     }
-                    "Skip to line" => {
-                        return Ok(Some(Action::ShowPopup(Box::new(SkipToPopup::default()))));
+                    "Jump to line" => {
+                        return Ok(Some(Action::ShowPopup(Box::new(JumpToPopup::default()))));
                     }
                     _ => {}
                 }
             }
-            Action::PopupReturn(id, Some(item)) if id == "SkipTo" => {
+            Action::PopupReturn(id, Some(item)) if id == "JumpTo" => {
                 let item = item.trim();
 
                 if let Some(item) = item.strip_prefix("0x") {

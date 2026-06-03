@@ -1,13 +1,330 @@
+use std::path::PathBuf;
+
 use ratatui::{
     layout::{Constraint, Direction, Layout, Offset, Position},
     prelude::{Buffer, Rect},
     style::Style,
     text::Span,
-    widgets::{Block, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, Widget},
+    widgets::{
+        Block, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, TableState, Widget,
+    },
 };
 use regex::bytes::Regex;
+use uuid::Uuid;
+
+use crate::{
+    DiffTuiError,
+    ui::{EventHandler, Notification, JumpToPopup, TabState, hex_cmp_view::{BytesInput, GuidInput}, menu::Menu},
+};
+
+use super::Action;
 
 const DIV_EVERY_BYTES: usize = 8;
+
+#[derive(Debug, Clone)]
+pub struct HexViewTab {
+    file: PathBuf,
+    buf: Vec<u8>,
+    state: HexViewState,
+    search_hl: Option<Regex>,
+    cached_hl: Vec<HighlightGroup>,
+}
+
+impl HexViewTab {
+    pub fn new(p: PathBuf) -> Result<Self, DiffTuiError> {
+        let buf = std::fs::read(&p)?;
+        Ok(Self {
+            file: p,
+            buf,
+            state: HexViewState::default(),
+            search_hl: None,
+            cached_hl: vec![],
+        })
+    }
+}
+
+impl EventHandler for HexViewTab {
+    fn handler(&mut self, event: &Action) -> Result<Option<Action>, DiffTuiError> {
+        match event {
+            Action::NavUp => {
+                self.state.move_sel_up();
+            }
+            Action::NavDown => {
+                self.state.move_sel_down();
+            }
+            Action::NavLeft => {
+                self.state.move_sel_left();
+            }
+            Action::NavRight => {
+                self.state.move_sel_right();
+            }
+            Action::PageUp(fac) => {
+                self.state.move_sel_up_page(*fac);
+            }
+            Action::PageDown(fac) => {
+                self.state.move_sel_down_page(*fac);
+            }
+            Action::SearchNext(r) => {
+                if !self
+                    .search_hl
+                    .as_ref()
+                    .is_some_and(|hl| hl.as_str() == r.as_str())
+                {
+                    self.search_hl = Some(r.clone());
+                    self.cached_hl = get_search_hl(&self.buf, &r);
+                }
+
+                let current = self.state.selected().unwrap_or(0);
+                let mut jump_to = None;
+                if let Some(hl) = self.cached_hl.iter().find(|hl| hl.start > current) {
+                    jump_to = Some(hl.start);
+                }
+                if let Some(m) = self.cached_hl.iter().find(|hl| hl.start > current) {
+                    if jump_to.is_none() || jump_to.is_some_and(|n| m.start < n) {
+                        jump_to = Some(m.start);
+                    }
+                }
+                if jump_to.is_none() && current != 0 {
+                    if let Some(m) = self.cached_hl.iter().find(|hl| hl.end() <= current) {
+                        jump_to = Some(m.start);
+                    }
+                    if let Some(m) = self.cached_hl.iter().find(|hl| hl.end() <= current) {
+                        if jump_to.is_none() || jump_to.is_some_and(|n| n > m.start) {
+                            jump_to = Some(m.start);
+                        }
+                    }
+                }
+                if let Some(jump_to) = jump_to {
+                    self.state.set_selected(Some(jump_to));
+                } else {
+                    return Ok(Some(Action::Notification(Notification {
+                        title: "Search".to_string(),
+                        body: "No matches found".to_string(),
+                    })));
+                }
+            }
+            Action::SearchPrev(r) => {
+                if !self
+                    .search_hl
+                    .as_ref()
+                    .is_some_and(|hl| hl.as_str() == r.as_str())
+                {
+                    self.search_hl = Some(r.clone());
+                    self.cached_hl = get_search_hl(&self.buf, &r);
+                }
+
+                let current = self.state.selected().unwrap_or(0);
+                let mut jump_to = None;
+                if let Some(m) = self
+                    .cached_hl
+                    .iter()
+                    .filter(|hl| hl.end() <= current)
+                    .last()
+                {
+                    jump_to = Some(m.start);
+                }
+                if let Some(m) = self
+                    .cached_hl
+                    .iter()
+                    .filter(|hl| hl.end() <= current)
+                    .last()
+                {
+                    if jump_to.is_none() || jump_to.is_some_and(|n| m.start > n) {
+                        jump_to = Some(m.start);
+                    }
+                }
+                if jump_to.is_none() && current != 0 {
+                    if let Some(m) = self.cached_hl.iter().filter(|hl| hl.start > current).last() {
+                        jump_to = Some(m.start);
+                    }
+                    if let Some(m) = self.cached_hl.iter().filter(|hl| hl.start > current).last() {
+                        if jump_to.is_none() || jump_to.is_some_and(|n| m.start > n) {
+                            jump_to = Some(m.start);
+                        }
+                    }
+                }
+                if let Some(jump_to) = jump_to {
+                    self.state.set_selected(Some(jump_to));
+                } else {
+                    return Ok(Some(Action::Notification(Notification {
+                        title: "Search".to_string(),
+                        body: "No matches found".to_string(),
+                    })));
+                }
+            }
+            Action::RemoveHighlight => {
+                self.search_hl = None;
+                self.cached_hl.clear();
+            }
+            Action::NavTop => {
+                self.state.set_selected(Some(0));
+            }
+            Action::NavBottom => {
+                self.state.set_selected(Some(usize::MAX));
+            }
+            Action::TabCustomAction => {
+                let opts = vec![
+                    ("Search for guid".to_string(), Some('g')),
+                    ("Search for bytes".to_string(), Some('b')),
+                    ("Jump to offset".to_string(), Some(':')),
+                ];
+                return Ok(Some(Action::ShowPopup(Box::new(Menu::new(
+                    "HexView action".to_string(),
+                    opts,
+                )))));
+            }
+            Action::PopupReturn(id, Some(item)) if id == "HexView action" => {
+                match item.as_str() {
+                    "Search for guid" => {
+                        return Ok(Some(Action::ShowPopup(Box::new(GuidInput::default()))));
+                    }
+                    "Search for bytes" => {
+                        return Ok(Some(Action::ShowPopup(Box::new(BytesInput::default()))));
+                    }
+                    "Jump to offset" => {
+                        return Ok(Some(Action::ShowPopup(Box::new(JumpToPopup::default()))));
+                    }
+                    _ => {}
+                }
+            }
+            Action::PopupReturn(id, Some(item)) if id == "GuidInput" => {
+                let mut parsed: Option<Uuid> = None;
+                if let Ok(uuid) = Uuid::try_parse(item) {
+                    parsed = Some(uuid);
+                } else if let Some(uuid) = parse_c_format_guid(item) {
+                    parsed = Some(uuid);
+                }
+                if let Some(uuid) = parsed {
+                    let bytes = uuid.to_bytes_le();
+                    let mut search_str = String::new();
+
+                    for b in bytes {
+                        search_str.push_str(format!("\\x{b:02x}").as_str());
+                    }
+
+                    return Ok(Some(Action::EditSearch(Some(search_str))));
+                } else {
+                    return Ok(Some(Action::Notification(Notification {
+                        title: "Guid search".to_string(),
+                        body: "Not a valid GUID".to_string(),
+                    })));
+                }
+            }
+            Action::PopupReturn(id, Some(item)) if id == "BytesInput" => {
+                if let Some(bytes) = parse_byte_string(item) {
+                    let mut search_str = String::new();
+                    for b in bytes {
+                        search_str.push_str(format!("\\x{b:02x}").as_str());
+                    }
+                    return Ok(Some(Action::EditSearch(Some(search_str))));
+                } else {
+                    return Ok(Some(Action::Notification(Notification {
+                        title: "Byte string search".to_string(),
+                        body: "Not a valid byte string".to_string(),
+                    })));
+                }
+            }
+            Action::PopupReturn(id, Some(item)) if id == "JumpTo" => {
+                let item = item.trim();
+
+                if let Some(item) = item.strip_prefix("0x") {
+                    match usize::from_str_radix(item, 16) {
+                        Ok(i) => {
+                            self.state.set_selected(Some(i));
+                            return Ok(None);
+                        }
+                        Err(e) => {
+                            return Ok(Some(Action::Notification(Notification {
+                                title: "Parse index failed".to_string(),
+                                body: format!("{e}"),
+                            })));
+                        }
+                    }
+                }
+                match usize::from_str_radix(item, 10) {
+                    Ok(i) => {
+                        self.state.set_selected(Some(i));
+                    }
+                    Err(e) => {
+                        return Ok(Some(Action::Notification(Notification {
+                            title: "Parse index failed".to_string(),
+                            body: format!("{e}"),
+                        })));
+                    }
+                }
+            }
+            _ => {}
+        }
+        return Ok(None);
+    }
+}
+
+impl TabState for HexViewTab {
+    fn title(&self) -> String {
+        self.file
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or(format!("Hex"))
+    }
+
+    fn render(&mut self, area: Rect, buf: &mut Buffer) {
+        StatefulWidget::render(
+            HexView::new(&self.buf).set_hl_groups(Some(self.cached_hl.as_slice())),
+            area,
+            buf,
+            &mut self.state,
+        );
+    }
+
+    fn reload(&mut self) -> Result<Option<Box<dyn TabState>>, DiffTuiError> {
+        Ok(Some(Box::new(HexViewTab::new(self.file.clone())?)))
+    }
+}
+
+pub fn get_search_hl(buf: &[u8], re: &Regex) -> Vec<HighlightGroup> {
+    let mut output: Vec<HighlightGroup> = vec![];
+    let style = Style::default().on_yellow();
+    for m in re.find_iter(buf) {
+        output.push((m.start(), m.len(), style).into());
+    }
+    output
+}
+
+pub fn parse_c_format_guid(s: &str) -> Option<Uuid> {
+    let mut components = s
+        .split(',')
+        .map(|s| s.trim_matches(['{', '}', ' ']).trim_start_matches("0x"));
+    let p1 = u32::from_str_radix(components.next()?, 16).ok()?;
+    let p2 = u16::from_str_radix(components.next()?, 16).ok()?;
+    let p3 = u16::from_str_radix(components.next()?, 16).ok()?;
+    let p4: Vec<u8> = components
+        .map(|s| u8::from_str_radix(s, 16))
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    Some(Uuid::from_fields(
+        p1,
+        p2,
+        p3,
+        p4.as_slice().try_into().ok()?,
+    ))
+}
+
+pub fn parse_byte_string(s: &str) -> Option<Vec<u8>> {
+    let mut bytes: Vec<u8> = vec![];
+    for mut s in s.split([',', ' ']).map(|s| s.trim_start_matches("0x")) {
+        if s.len() % 2 != 0 {
+            bytes.push(u8::from_str_radix(&s[0..1], 16).ok()?);
+            s = &s[1..];
+        }
+
+        for idx in (0..s.len()).step_by(2) {
+            bytes.push(u8::from_str_radix(&s[idx..idx + 2], 16).ok()?);
+        }
+    }
+
+    Some(bytes)
+}
+
 
 #[derive(Debug, Default, Clone)]
 pub struct HexViewState {
@@ -506,8 +823,6 @@ fn byte_to_display_char(n: u8) -> char {
 
 #[cfg(test)]
 mod test {
-    use regex::bytes::Regex;
-
     use crate::ui::hex_view::{HexViewMode, line_number_width, num_to_hex_chars};
 
     #[test]

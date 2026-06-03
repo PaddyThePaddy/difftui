@@ -13,7 +13,7 @@ use std::{io::stdout, path::PathBuf, time::Duration};
 use crate::{
     DiffTuiError,
     ui::{
-        app::App, folder_cmp_view::FolderCmpState, hex_cmp_view::HexCmpView,
+        app::App, folder_cmp_view::FolderCmpState, hex_cmp_view::HexCmpView, hex_view::HexViewTab,
         text_cmp_view::TextCmpView, tui::pause_event_stream,
     },
 };
@@ -166,16 +166,16 @@ pub trait Popup: std::fmt::Debug {
 }
 
 #[derive(Debug)]
-pub struct SkipToPopup<'a> {
+pub struct JumpToPopup<'a> {
     ta: TextArea<'a>,
 }
 
-impl<'a> Default for SkipToPopup<'a> {
+impl<'a> Default for JumpToPopup<'a> {
     fn default() -> Self {
         let mut ta = TextArea::default();
         ta.set_block(
             Block::bordered()
-                .title("Skip to")
+                .title("Jump to")
                 .border_style(Style::default().magenta())
                 .border_type(BorderType::Rounded),
         );
@@ -183,16 +183,16 @@ impl<'a> Default for SkipToPopup<'a> {
     }
 }
 
-impl<'a> Popup for SkipToPopup<'a> {
+impl<'a> Popup for JumpToPopup<'a> {
     fn handler(&mut self, event: &tui::Event) -> Option<Action> {
         if let tui::Event::Key(key_evt) = event {
             if key_evt.code == KeyCode::Enter {
                 return Some(Action::PopupReturn(
-                    "SkipTo".to_string(),
+                    "JumpTo".to_string(),
                     Some(self.ta.lines()[0].clone()),
                 ));
             } else if key_evt.code == KeyCode::Esc {
-                return Some(Action::PopupReturn("SkipTo".to_string(), None));
+                return Some(Action::PopupReturn("JumpTo".to_string(), None));
             } else {
                 self.ta.input(*key_evt);
             }
@@ -216,6 +216,7 @@ pub struct Notification {
 pub enum OpenWith {
     #[default]
     Auto,
+    HexCmpView,
     HexView,
     TextView,
 }
@@ -228,7 +229,8 @@ pub fn start_tui(lhs: PathBuf, rhs: PathBuf, open_with: OpenWith) -> Result<(), 
     rt.block_on(async move {
         let first_tab: Box<dyn TabState> = if lhs.metadata()?.is_file() {
             match open_with {
-                OpenWith::HexView => Box::new(HexCmpView::new(lhs, rhs)?),
+                OpenWith::HexCmpView => Box::new(HexCmpView::new(lhs, rhs)?),
+                OpenWith::HexView => Box::new(HexViewTab::new(lhs)?),
                 _ => Box::new(TextCmpView::new(lhs, rhs)?),
             }
         } else {

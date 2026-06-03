@@ -15,9 +15,9 @@ use uuid::Uuid;
 use crate::{
     DiffTuiError,
     ui::{
-        self, EventHandler, Notification, Popup, SkipToPopup, TabState,
+        self, EventHandler, Notification, Popup, JumpToPopup, TabState,
         folder_cmp_view::FolderCmpState,
-        hex_view::{HexView, HexViewState, HighlightGroup},
+        hex_view::{HexView, HexViewState, HighlightGroup, get_search_hl, parse_byte_string, parse_c_format_guid},
         menu::Menu,
         text_cmp_view::TextCmpView,
         tui,
@@ -247,7 +247,7 @@ impl EventHandler for HexCmpView {
                     ("Reopen with text cmp view".to_string(), Some('t')),
                     ("Search for guid".to_string(), Some('g')),
                     ("Search for bytes".to_string(), Some('b')),
-                    ("Skip to offset".to_string(), Some(':')),
+                    ("Jump to offset".to_string(), Some(':')),
                 ];
 
                 if self
@@ -280,8 +280,8 @@ impl EventHandler for HexCmpView {
                     "Search for bytes" => {
                         return Ok(Some(Action::ShowPopup(Box::new(BytesInput::default()))));
                     }
-                    "Skip to offset" => {
-                        return Ok(Some(Action::ShowPopup(Box::new(SkipToPopup::default()))));
+                    "Jump to offset" => {
+                        return Ok(Some(Action::ShowPopup(Box::new(JumpToPopup::default()))));
                     }
                     "Open parent folder in folder cmp view" => {
                         if let Some((lhs, rhs)) = self.lhs_path.parent().zip(self.rhs_path.parent())
@@ -331,7 +331,7 @@ impl EventHandler for HexCmpView {
                     })));
                 }
             }
-            Action::PopupReturn(id, Some(item)) if id == "SkipTo" => {
+            Action::PopupReturn(id, Some(item)) if id == "JumpTo" => {
                 let item = item.trim();
 
                 if let Some(item) = item.strip_prefix("0x") {
@@ -596,53 +596,9 @@ fn compare_diff_hunks(lhs: &[u8], rhs: &[u8]) -> Vec<HighlightGroup> {
     hunks
 }
 
-fn get_search_hl(buf: &[u8], re: &Regex) -> Vec<HighlightGroup> {
-    let mut output: Vec<HighlightGroup> = vec![];
-    let style = Style::default().on_yellow();
-    for m in re.find_iter(buf) {
-        output.push((m.start(), m.len(), style).into());
-    }
-    output
-}
-
-fn parse_c_format_guid(s: &str) -> Option<Uuid> {
-    let mut components = s
-        .split(',')
-        .map(|s| s.trim_matches(['{', '}', ' ']).trim_start_matches("0x"));
-    let p1 = u32::from_str_radix(components.next()?, 16).ok()?;
-    let p2 = u16::from_str_radix(components.next()?, 16).ok()?;
-    let p3 = u16::from_str_radix(components.next()?, 16).ok()?;
-    let p4: Vec<u8> = components
-        .map(|s| u8::from_str_radix(s, 16))
-        .collect::<Result<Vec<_>, _>>()
-        .ok()?;
-    Some(Uuid::from_fields(
-        p1,
-        p2,
-        p3,
-        p4.as_slice().try_into().ok()?,
-    ))
-}
-
-fn parse_byte_string(s: &str) -> Option<Vec<u8>> {
-    let mut bytes: Vec<u8> = vec![];
-    for mut s in s.split([',', ' ']).map(|s| s.trim_start_matches("0x")) {
-        if s.len() % 2 != 0 {
-            bytes.push(u8::from_str_radix(&s[0..1], 16).ok()?);
-            s = &s[1..];
-        }
-
-        for idx in (0..s.len()).step_by(2) {
-            bytes.push(u8::from_str_radix(&s[idx..idx + 2], 16).ok()?);
-        }
-    }
-
-    Some(bytes)
-}
-
 #[cfg(test)]
 mod test {
-    use crate::ui::hex_cmp_view::{parse_byte_string, parse_c_format_guid};
+    use crate::ui::hex_view::{parse_byte_string, parse_c_format_guid};
 
     #[test]
     fn test_c_format_guid_parsing() {
