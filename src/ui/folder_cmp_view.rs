@@ -371,7 +371,7 @@ impl EventHandler for FolderCmpState {
                     }
                 }
             }
-            Action::Open => {
+            Action::OpenMenu => {
                 let mut options = vec![];
                 if let Some((lhs, rhs)) = self
                     .lhs_state
@@ -398,6 +398,26 @@ impl EventHandler for FolderCmpState {
                         .vim_key(true)
                         .select(Some(0)),
                 ))));
+            }
+            Action::Open => {
+                if let Some((lhs, rhs)) = self
+                    .lhs_state
+                    .selected_path()
+                    .zip(self.rhs_state.selected_path())
+                {
+                    let lhs_path = self.lhs_path.join(lhs);
+                    let rhs_path = self.rhs_path.join(rhs);
+                    if lhs_path.is_dir() && rhs_path.is_dir() {
+                        return Ok(Some(Action::CreateTabAndSwitch(Box::new(
+                            FolderCmpState::new(lhs_path, rhs_path)?,
+                        ))));
+                    } else {
+                        return Ok(Some(Action::CreateTabAndSwitch(Box::new(
+                            TextCmpView::new(lhs_path, rhs_path)?,
+                        ))));
+                    }
+                }
+                return Ok(None);
             }
             Action::TabCustomAction => {
                 let mut opts = vec![];

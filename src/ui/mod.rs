@@ -54,6 +54,7 @@ pub enum Action {
     PopupFilter,
     Tick,
     Open,
+    OpenMenu,
     ShowPopup(Box<dyn Popup>),
     PopupReturn(String, Option<String>),
     Notification(Notification),
@@ -104,6 +105,7 @@ impl TryFrom<KeyEvent> for Action {
             match value.code {
                 KeyCode::Char('G') => Ok(Self::NavBottom),
                 KeyCode::Char('R') => Ok(Self::Reload),
+                KeyCode::Char('O') => Ok(Self::OpenMenu),
                 KeyCode::BackTab => Ok(Self::PrevTab),
                 _ => Err(()),
             }

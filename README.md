@@ -12,25 +12,26 @@ cargo install https://github.com/PaddyThePaddy/difftui --locked
 
 ## Keymaps
 
-| Key               | Action                       |
-| ----------------- | ---------------------------- |
-| Arrow keys / hjkl | Navigation                   |
-| `q`               | Closet tab                   |
-| `c`               | Compare selected file/folder |
-| `o`               | Open selected filde / folder |
-| `g`               | Move to top                  |
-| `G`               | Move to bottom               |
-| `f`               | Filter files                 |
-| `z`               | Tab specific actions         |
-| `R`               | Reload tab                   |
-| `x`               | Swap sides                   |
-| `/`               | Search                       |
-| `n` / `N`         | Search next/previous         |
-| `]`/`[`           | Next/Previous difference     |
-| `=`               | Decouple side-by-side view   |
-| Enter             | Expand/Collapse              |
-| Ctrl + `c`        | Exit app                     |
-| `?` / `F1`        | Show help                    |
+| Key               | Action                                   |
+| ----------------- | ---------------------------------------- |
+| Arrow keys / hjkl | Navigation                               |
+| `q`               | Closet tab                               |
+| `c`               | Compare selected file/folder             |
+| `o`               | Open selected filde / folder             |
+| `o`               | Open selected filde / folder with option |
+| `g`               | Move to top                              |
+| `G`               | Move to bottom                           |
+| `f`               | Filter files                             |
+| `z`               | Tab specific actions                     |
+| `R`               | Reload tab                               |
+| `x`               | Swap sides                               |
+| `/`               | Search                                   |
+| `n` / `N`         | Search next/previous                     |
+| `]`/`[`           | Next/Previous difference                 |
+| `=`               | Decouple side-by-side view               |
+| Enter             | Expand/Collapse                          |
+| Ctrl + `c`        | Exit app                                 |
+| `?` / `F1`        | Show help                                |
 
 ## To do
 

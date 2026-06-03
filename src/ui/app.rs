@@ -251,6 +251,7 @@ impl App {
                         "q        => Closet tab",
                         "c        => Compare selected file/folder",
                         "o        => Open selected filde / folder",
+                        "o        => Open selected filde / folder with option",
                         "g        => Move to top",
                         "G        => Move to bottom",
                         "f        => Filter files",
