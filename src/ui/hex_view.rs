@@ -780,7 +780,11 @@ enum HexHelperState<'a> {
 impl<'a> Default for HexHelperState<'a> {
     fn default() -> Self {
         let mut text = TextArea::default();
-        text.set_block(Block::bordered().border_type(BorderType::Rounded));
+        text.set_block(
+            Block::bordered()
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().blue()),
+        );
         text.set_wrap_mode(WrapMode::Glyph);
         Self::SelectMode(text, None, ListState::default().with_selected(Some(0)))
     }
@@ -833,7 +837,11 @@ impl<'a> Popup for HexSearchHelper<'a> {
                         KeyCode::Up => list.select_previous(),
                         KeyCode::Enter => {
                             let mut text_area = TextArea::default();
-                            text_area.set_block(Block::bordered().border_type(BorderType::Rounded));
+                            text_area.set_block(
+                                Block::bordered()
+                                    .border_type(BorderType::Rounded)
+                                    .border_style(Style::default().blue()),
+                            );
                             text_area.set_wrap_mode(WrapMode::Glyph);
                             self.state =
                                 HexHelperState::InputContent(self.selected_mode(), text_area);
@@ -946,7 +954,7 @@ impl<'a> Popup for HexSearchHelper<'a> {
                 text_area.render(selector_area, buf);
                 StatefulWidget::render(
                     List::new(list_items)
-                        .highlight_style(Style::default().on_dark_gray())
+                        .highlight_style(Style::default().on_blue())
                         .block(Block::bordered().border_type(BorderType::Rounded)),
                     main_area,
                     buf,
