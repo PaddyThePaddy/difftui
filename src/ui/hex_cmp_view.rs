@@ -279,9 +279,9 @@ impl EventHandler for HexCmpView {
                         ))));
                     }
                     "Hex search helper" => {
-                        return Ok(Some(Action::ShowPopup(
-                            Box::new(HexSearchHelper::default()),
-                        )));
+                        return Ok(Some(Action::ShowPopup(Box::new(
+                            HexSearchHelper::default().auto_select(true),
+                        ))));
                     }
                     "Open parent folder in folder cmp view" => {
                         if let Some((lhs, rhs)) = self.lhs_path.parent().zip(self.rhs_path.parent())

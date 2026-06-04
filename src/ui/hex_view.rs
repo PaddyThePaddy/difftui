@@ -187,9 +187,9 @@ impl EventHandler for HexViewTab {
             }
             Action::PopupReturn(id, Some(item)) if id == "HexView action" => match item.as_str() {
                 "Hex search helper" => {
-                    return Ok(Some(Action::ShowPopup(
-                        Box::new(HexSearchHelper::default()),
-                    )));
+                    return Ok(Some(Action::ShowPopup(Box::new(
+                        HexSearchHelper::default().auto_select(true),
+                    ))));
                 }
                 "Jump to offset" => {
                     return Ok(Some(Action::ShowPopup(Box::new(JumpToPopup::default()))));
@@ -779,14 +779,11 @@ enum HexHelperState<'a> {
 
 impl<'a> Default for HexHelperState<'a> {
     fn default() -> Self {
-        let mut text = TextArea::default();
-        text.set_block(
-            Block::bordered()
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().blue()),
-        );
-        text.set_wrap_mode(WrapMode::Glyph);
-        Self::SelectMode(text, None, ListState::default().with_selected(Some(0)))
+        Self::SelectMode(
+            HexSearchHelper::create_focus_text_area(),
+            None,
+            ListState::default().with_selected(Some(0)),
+        )
     }
 }
 
@@ -794,10 +791,17 @@ impl<'a> Default for HexHelperState<'a> {
 pub struct HexSearchHelper<'a> {
     state: HexHelperState<'a>,
     should_exit: bool,
+    auto_select: bool,
 }
 
 impl<'a> HexSearchHelper<'a> {
     const ID: &'static str = "HexHelper";
+
+    pub fn auto_select(mut self, val: bool) -> Self {
+        self.auto_select = val;
+        self
+    }
+
     fn current_displayed_items(&self) -> Vec<HexHelperMode> {
         match &self.state {
             HexHelperState::SelectMode(_, re, _) => {
@@ -812,6 +816,7 @@ impl<'a> HexSearchHelper<'a> {
             HexHelperState::InputContent(_, _) => vec![],
         }
     }
+
     fn selected_mode(&self) -> HexHelperMode {
         match &self.state {
             HexHelperState::SelectMode(_, _, list) => self
@@ -821,6 +826,17 @@ impl<'a> HexSearchHelper<'a> {
                 .unwrap_or_default(),
             HexHelperState::InputContent(_, _) => HexHelperMode::default(),
         }
+    }
+
+    fn create_focus_text_area() -> TextArea<'a> {
+        let mut text_area = TextArea::default();
+        text_area.set_block(
+            Block::bordered()
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().blue()),
+        );
+        text_area.set_wrap_mode(WrapMode::Glyph);
+        text_area
     }
 }
 
@@ -836,15 +852,10 @@ impl<'a> Popup for HexSearchHelper<'a> {
                         KeyCode::Down => list.select_next(),
                         KeyCode::Up => list.select_previous(),
                         KeyCode::Enter => {
-                            let mut text_area = TextArea::default();
-                            text_area.set_block(
-                                Block::bordered()
-                                    .border_type(BorderType::Rounded)
-                                    .border_style(Style::default().blue()),
+                            self.state = HexHelperState::InputContent(
+                                self.selected_mode(),
+                                Self::create_focus_text_area(),
                             );
-                            text_area.set_wrap_mode(WrapMode::Glyph);
-                            self.state =
-                                HexHelperState::InputContent(self.selected_mode(), text_area);
                             return None;
                         }
                         KeyCode::Esc => {
@@ -860,6 +871,16 @@ impl<'a> Popup for HexSearchHelper<'a> {
                         .build()
                         .ok();
                     *regex = new_re;
+                    if self.auto_select {
+                        let current_items = self.current_displayed_items();
+                        if current_items.len() == 1 {
+                            self.state = HexHelperState::InputContent(
+                                self.selected_mode(),
+                                Self::create_focus_text_area(),
+                            );
+                            return None;
+                        }
+                    }
                 }
             }
             HexHelperState::InputContent(hex_helper_mode, text_area) => {
