@@ -1,4 +1,4 @@
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::{
     Frame,
     buffer::Buffer,
@@ -109,6 +109,13 @@ impl App {
     }
 
     fn handle_event(&mut self, evt: tui::Event) -> Option<Action> {
+        if let tui::Event::Key(key) = evt {
+            if let KeyCode::Char('c') = key.code {
+                if key.modifiers == KeyModifiers::CONTROL {
+                    return Some(Action::ExitApp(None));
+                }
+            }
+        }
         if let Some(_) = &self.showing_notify {
             if let tui::Event::Key(key) = evt {
                 match key.code {
