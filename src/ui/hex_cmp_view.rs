@@ -1,26 +1,22 @@
 use std::path::{Path, PathBuf};
 
-use crossterm::event::KeyCode;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Spacing},
     prelude::{Buffer, Rect},
     style::Style,
     symbols::merge::MergeStrategy,
-    widgets::{Block, BorderType, StatefulWidget, Widget as _},
+    widgets::{Block, StatefulWidget},
 };
-use ratatui_textarea::TextArea;
 use regex::bytes::Regex;
-use uuid::Uuid;
 
 use crate::{
     DiffTuiError,
     ui::{
-        self, EventHandler, Notification, Popup, JumpToPopup, TabState,
+        EventHandler, JumpToPopup, Notification, TabState,
         folder_cmp_view::FolderCmpState,
-        hex_view::{HexView, HexViewState, HighlightGroup, get_search_hl, parse_byte_string, parse_c_format_guid},
+        hex_view::{HexSearchHelper, HexView, HexViewState, HighlightGroup, get_search_hl},
         menu::Menu,
         text_cmp_view::TextCmpView,
-        tui,
     },
 };
 
@@ -245,8 +241,7 @@ impl EventHandler for HexCmpView {
             Action::TabCustomAction => {
                 let mut opts = vec![
                     ("Reopen with text cmp view".to_string(), Some('t')),
-                    ("Search for guid".to_string(), Some('g')),
-                    ("Search for bytes".to_string(), Some('b')),
+                    ("Hex search helper".to_string(), Some('h')),
                     ("Jump to offset".to_string(), Some(':')),
                 ];
 
@@ -274,11 +269,8 @@ impl EventHandler for HexCmpView {
                             TextCmpView::new(self.lhs_path.clone(), self.rhs_path.clone())?,
                         ))));
                     }
-                    "Search for guid" => {
-                        return Ok(Some(Action::ShowPopup(Box::new(GuidInput::default()))));
-                    }
-                    "Search for bytes" => {
-                        return Ok(Some(Action::ShowPopup(Box::new(BytesInput::default()))));
+                    "Hex search helper" => {
+                        return Ok(Some(Action::ShowPopup(Box::new(HexSearchHelper::default()))));
                     }
                     "Jump to offset" => {
                         return Ok(Some(Action::ShowPopup(Box::new(JumpToPopup::default()))));
@@ -292,43 +284,6 @@ impl EventHandler for HexCmpView {
                         }
                     }
                     _ => {}
-                }
-            }
-            Action::PopupReturn(id, Some(item)) if id == "GuidInput" => {
-                let mut parsed: Option<Uuid> = None;
-                if let Ok(uuid) = Uuid::try_parse(item) {
-                    parsed = Some(uuid);
-                } else if let Some(uuid) = parse_c_format_guid(item) {
-                    parsed = Some(uuid);
-                }
-                if let Some(uuid) = parsed {
-                    let bytes = uuid.to_bytes_le();
-                    let mut search_str = String::new();
-
-                    for b in bytes {
-                        search_str.push_str(format!("\\x{b:02x}").as_str());
-                    }
-
-                    return Ok(Some(Action::EditSearch(Some(search_str))));
-                } else {
-                    return Ok(Some(Action::Notification(Notification {
-                        title: "Guid search".to_string(),
-                        body: "Not a valid GUID".to_string(),
-                    })));
-                }
-            }
-            Action::PopupReturn(id, Some(item)) if id == "BytesInput" => {
-                if let Some(bytes) = parse_byte_string(item) {
-                    let mut search_str = String::new();
-                    for b in bytes {
-                        search_str.push_str(format!("\\x{b:02x}").as_str());
-                    }
-                    return Ok(Some(Action::EditSearch(Some(search_str))));
-                } else {
-                    return Ok(Some(Action::Notification(Notification {
-                        title: "Byte string search".to_string(),
-                        body: "Not a valid byte string".to_string(),
-                    })));
                 }
             }
             Action::PopupReturn(id, Some(item)) if id == "JumpTo" => {
@@ -458,95 +413,6 @@ fn build_title(lhs: &Path, rhs: &Path) -> Option<String> {
         }
     }
     title
-}
-
-#[derive(Debug)]
-pub struct GuidInput<'a> {
-    ta: TextArea<'a>,
-}
-
-impl<'a> Default for GuidInput<'a> {
-    fn default() -> Self {
-        let mut ta = TextArea::default();
-        ta.set_block(
-            Block::bordered()
-                .title("Helper for guid search")
-                .title_bottom("Press enter twice when completed")
-                .border_style(Style::default().green())
-                .border_type(BorderType::Rounded),
-        );
-        Self { ta }
-    }
-}
-
-impl<'a> Popup for GuidInput<'a> {
-    fn handler(&mut self, event: &ui::tui::Event) -> Option<Action> {
-        if let tui::Event::Key(key_evt) = event {
-            if key_evt.code == KeyCode::Enter {
-                return Some(Action::PopupReturn(
-                    "GuidInput".to_string(),
-                    Some(self.ta.lines()[0].clone()),
-                ));
-            } else if key_evt.code == KeyCode::Esc {
-                return Some(Action::PopupReturn("GuidInput".to_string(), None));
-            } else {
-                self.ta.input(*key_evt);
-            }
-        }
-        None
-    }
-
-    fn render(&mut self, frame: &mut ratatui::prelude::Frame) {
-        let (area, buf) = self.prepare(frame, Constraint::Max(100), Constraint::Length(3));
-        self.ta.render(area, buf);
-    }
-}
-
-#[derive(Debug)]
-pub struct BytesInput<'a> {
-    ta: TextArea<'a>,
-}
-
-impl<'a> Default for BytesInput<'a> {
-    fn default() -> Self {
-        let mut ta = TextArea::default();
-        ta.set_wrap_mode(ratatui_textarea::WrapMode::Glyph);
-        ta.set_block(
-            Block::bordered()
-                .title("Helper for byte string search")
-                .title_bottom("Press enter twice when completed")
-                .border_style(Style::default().green())
-                .border_type(BorderType::Rounded),
-        );
-        Self { ta }
-    }
-}
-
-impl<'a> Popup for BytesInput<'a> {
-    fn handler(&mut self, event: &ui::tui::Event) -> Option<Action> {
-        if let tui::Event::Key(key_evt) = event {
-            if key_evt.code == KeyCode::Enter {
-                return Some(Action::PopupReturn(
-                    "BytesInput".to_string(),
-                    Some(self.ta.lines()[0].clone()),
-                ));
-            } else if key_evt.code == KeyCode::Esc {
-                return Some(Action::PopupReturn("BytesInput".to_string(), None));
-            } else {
-                self.ta.input(*key_evt);
-            }
-        }
-        None
-    }
-
-    fn render(&mut self, frame: &mut ratatui::prelude::Frame) {
-        let (area, buf) = self.prepare(
-            frame,
-            Constraint::Percentage(50),
-            Constraint::Percentage(50),
-        );
-        self.ta.render(area, buf);
-    }
 }
 
 fn compare_diff_hunks(lhs: &[u8], rhs: &[u8]) -> Vec<HighlightGroup> {

@@ -1,20 +1,28 @@
 use std::path::PathBuf;
 
+use crossterm::event::KeyCode;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Offset, Position},
     prelude::{Buffer, Rect},
     style::Style,
     text::Span,
     widgets::{
-        Block, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, TableState, Widget,
+        Block, BorderType, List, ListState, Paragraph, Scrollbar, ScrollbarOrientation,
+        ScrollbarState, StatefulWidget, Widget,
     },
 };
-use regex::bytes::Regex;
+use ratatui_textarea::{TextArea, WrapMode};
+use regex::bytes::{Regex, RegexBuilder};
+use strum::IntoEnumIterator;
 use uuid::Uuid;
 
 use crate::{
     DiffTuiError,
-    ui::{EventHandler, Notification, JumpToPopup, TabState, hex_cmp_view::{BytesInput, GuidInput}, menu::Menu},
+    ui::{
+        EventHandler, JumpToPopup, Notification, Popup, TabState,
+        menu::Menu,
+        tui,
+    },
 };
 
 use super::Action;
@@ -164,8 +172,7 @@ impl EventHandler for HexViewTab {
             }
             Action::TabCustomAction => {
                 let opts = vec![
-                    ("Search for guid".to_string(), Some('g')),
-                    ("Search for bytes".to_string(), Some('b')),
+                    ("Hex search helper".to_string(), Some('h')),
                     ("Jump to offset".to_string(), Some(':')),
                 ];
                 return Ok(Some(Action::ShowPopup(Box::new(Menu::new(
@@ -173,57 +180,15 @@ impl EventHandler for HexViewTab {
                     opts,
                 )))));
             }
-            Action::PopupReturn(id, Some(item)) if id == "HexView action" => {
-                match item.as_str() {
-                    "Search for guid" => {
-                        return Ok(Some(Action::ShowPopup(Box::new(GuidInput::default()))));
-                    }
-                    "Search for bytes" => {
-                        return Ok(Some(Action::ShowPopup(Box::new(BytesInput::default()))));
-                    }
-                    "Jump to offset" => {
-                        return Ok(Some(Action::ShowPopup(Box::new(JumpToPopup::default()))));
-                    }
-                    _ => {}
+            Action::PopupReturn(id, Some(item)) if id == "HexView action" => match item.as_str() {
+                "Hex search helper" => {
+                    return Ok(Some(Action::ShowPopup(Box::new(HexSearchHelper::default()))));
                 }
-            }
-            Action::PopupReturn(id, Some(item)) if id == "GuidInput" => {
-                let mut parsed: Option<Uuid> = None;
-                if let Ok(uuid) = Uuid::try_parse(item) {
-                    parsed = Some(uuid);
-                } else if let Some(uuid) = parse_c_format_guid(item) {
-                    parsed = Some(uuid);
+                "Jump to offset" => {
+                    return Ok(Some(Action::ShowPopup(Box::new(JumpToPopup::default()))));
                 }
-                if let Some(uuid) = parsed {
-                    let bytes = uuid.to_bytes_le();
-                    let mut search_str = String::new();
-
-                    for b in bytes {
-                        search_str.push_str(format!("\\x{b:02x}").as_str());
-                    }
-
-                    return Ok(Some(Action::EditSearch(Some(search_str))));
-                } else {
-                    return Ok(Some(Action::Notification(Notification {
-                        title: "Guid search".to_string(),
-                        body: "Not a valid GUID".to_string(),
-                    })));
-                }
-            }
-            Action::PopupReturn(id, Some(item)) if id == "BytesInput" => {
-                if let Some(bytes) = parse_byte_string(item) {
-                    let mut search_str = String::new();
-                    for b in bytes {
-                        search_str.push_str(format!("\\x{b:02x}").as_str());
-                    }
-                    return Ok(Some(Action::EditSearch(Some(search_str))));
-                } else {
-                    return Ok(Some(Action::Notification(Notification {
-                        title: "Byte string search".to_string(),
-                        body: "Not a valid byte string".to_string(),
-                    })));
-                }
-            }
+                _ => {}
+            },
             Action::PopupReturn(id, Some(item)) if id == "JumpTo" => {
                 let item = item.trim();
 
@@ -324,7 +289,6 @@ pub fn parse_byte_string(s: &str) -> Option<Vec<u8>> {
 
     Some(bytes)
 }
-
 
 #[derive(Debug, Default, Clone)]
 pub struct HexViewState {
@@ -788,6 +752,207 @@ impl<'buf, 'blk, 'hl> StatefulWidget for HexView<'buf, 'blk, 'hl> {
                 buf,
                 &mut scrollbar_state,
             );
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, strum::IntoStaticStr, strum::EnumIter)]
+pub enum HexHelperMode {
+    #[default]
+    ByteString,
+    Guid,
+    Utf16le,
+}
+
+#[derive(Debug, Clone)]
+enum HexHelperState<'a> {
+    SelectMode(TextArea<'a>, Option<Regex>, ListState),
+    InputContent(HexHelperMode, TextArea<'a>),
+}
+
+impl<'a> Default for HexHelperState<'a> {
+    fn default() -> Self {
+        let mut text = TextArea::default();
+        text.set_block(Block::bordered().border_type(BorderType::Rounded));
+        text.set_wrap_mode(WrapMode::Glyph);
+        Self::SelectMode(text, None, ListState::default().with_selected(Some(0)))
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct HexSearchHelper<'a> {
+    state: HexHelperState<'a>,
+    should_exit: bool,
+}
+
+impl<'a> HexSearchHelper<'a> {
+    const ID: &'static str = "HexHelper";
+    fn current_displayed_items(&self) -> Vec<HexHelperMode> {
+        match &self.state {
+            HexHelperState::SelectMode(_, re, _) => {
+                if let Some(re) = re {
+                    HexHelperMode::iter()
+                        .filter(|m| re.is_match(Into::<&str>::into(m).as_bytes()))
+                        .collect()
+                } else {
+                    HexHelperMode::iter().collect()
+                }
+            }
+            HexHelperState::InputContent(_, _) => vec![],
+        }
+    }
+    fn selected_mode(&self) -> HexHelperMode {
+        match &self.state {
+            HexHelperState::SelectMode(_, _, list) => self
+                .current_displayed_items()
+                .into_iter()
+                .nth(list.selected().unwrap_or(0))
+                .unwrap_or_default(),
+            HexHelperState::InputContent(_, _) => HexHelperMode::default(),
+        }
+    }
+}
+
+impl<'a> Popup for HexSearchHelper<'a> {
+    fn handler(&mut self, event: &tui::Event) -> Option<Action> {
+        if self.should_exit {
+            return Some(Action::PopupReturn(Self::ID.to_string(), None));
+        }
+        match &mut self.state {
+            HexHelperState::SelectMode(text_area, regex, list) => {
+                if let tui::Event::Key(key) = event {
+                    match key.code {
+                        KeyCode::Down => list.select_next(),
+                        KeyCode::Up => list.select_previous(),
+                        KeyCode::Enter => {
+                            let mut text_area = TextArea::default();
+                            text_area.set_block(Block::bordered().border_type(BorderType::Rounded));
+                            text_area.set_wrap_mode(WrapMode::Glyph);
+                            self.state =
+                                HexHelperState::InputContent(self.selected_mode(), text_area);
+                            return None;
+                        }
+                        KeyCode::Esc => {
+                            return Some(Action::PopupReturn(Self::ID.to_string(), None));
+                        }
+                        _ => {
+                            text_area.input(*key);
+                        }
+                    }
+                    let text = text_area.lines().join("\n");
+                    let new_re = RegexBuilder::new(text.as_str())
+                        .case_insensitive(!text.chars().any(|c| c.is_uppercase()))
+                        .build()
+                        .ok();
+                    *regex = new_re;
+                }
+            }
+            HexHelperState::InputContent(hex_helper_mode, text_area) => {
+                if let tui::Event::Key(key) = event {
+                    match key.code {
+                        KeyCode::Esc => {
+                            return Some(Action::PopupReturn(Self::ID.to_string(), None));
+                        }
+                        KeyCode::Enter => {
+                            let item = text_area.lines().join("\n");
+                            match hex_helper_mode {
+                                HexHelperMode::Guid => {
+                                    let mut parsed: Option<Uuid> = None;
+                                    if let Ok(uuid) = Uuid::try_parse(item.as_str()) {
+                                        parsed = Some(uuid);
+                                    } else if let Some(uuid) = parse_c_format_guid(item.as_str()) {
+                                        parsed = Some(uuid);
+                                    }
+                                    if let Some(uuid) = parsed {
+                                        let bytes = uuid.to_bytes_le();
+                                        let mut search_str = String::new();
+
+                                        for b in bytes {
+                                            search_str.push_str(format!("\\x{b:02x}").as_str());
+                                        }
+
+                                        self.should_exit = true;
+                                        return Some(Action::EditSearch(Some(search_str)));
+                                    } else {
+                                        return Some(Action::Notification(Notification {
+                                            title: "Guid search".to_string(),
+                                            body: "Not a valid GUID".to_string(),
+                                        }));
+                                    }
+                                }
+                                HexHelperMode::ByteString => {
+                                    if let Some(bytes) = parse_byte_string(item.as_str()) {
+                                        let mut search_str = String::new();
+                                        for b in bytes {
+                                            search_str.push_str(format!("\\x{b:02x}").as_str());
+                                        }
+
+                                        self.should_exit = true;
+                                        return Some(Action::EditSearch(Some(search_str)));
+                                    } else {
+                                        return Some(Action::Notification(Notification {
+                                            title: "Byte string search".to_string(),
+                                            body: "Not a valid byte string".to_string(),
+                                        }));
+                                    }
+                                }
+                                HexHelperMode::Utf16le => {
+                                    let utf16_bytes = item.encode_utf16();
+                                    let mut search_str = String::new();
+                                    for b in utf16_bytes.into_iter() {
+                                        let [h, l] = b.to_le_bytes();
+                                        search_str.push_str(format!("\\x{h:02x}").as_str());
+                                        search_str.push_str(format!("\\x{l:02x}").as_str());
+                                    }
+                                    self.should_exit = true;
+                                    return Some(Action::EditSearch(Some(search_str)));
+                                }
+                            }
+                        }
+                        _ => {
+                            text_area.input(*key);
+                        }
+                    }
+                }
+            }
+        }
+        return None;
+    }
+
+    fn render(&mut self, frame: &mut ratatui::prelude::Frame) {
+        let (area, buf) = self.prepare(
+            frame,
+            Constraint::Percentage(50),
+            Constraint::Percentage(80),
+        );
+        let [selector_area, main_area] = area.layout(&Layout::new(
+            Direction::Vertical,
+            [Constraint::Length(3), Constraint::Fill(1)],
+        ));
+
+        let list_items = self
+            .current_displayed_items()
+            .into_iter()
+            .map(|m| Into::<&str>::into(m));
+        match &mut self.state {
+            HexHelperState::SelectMode(text_area, _, list_state) => {
+                text_area.render(selector_area, buf);
+                StatefulWidget::render(
+                    List::new(list_items)
+                        .highlight_style(Style::default().on_dark_gray())
+                        .block(Block::bordered().border_type(BorderType::Rounded)),
+                    main_area,
+                    buf,
+                    list_state,
+                );
+            }
+            HexHelperState::InputContent(hex_helper_mode, text_area) => {
+                let mode: &str = (*hex_helper_mode).into();
+                Paragraph::new(mode)
+                    .block(Block::bordered().border_type(BorderType::Rounded))
+                    .render(selector_area, buf);
+                text_area.render(main_area, buf);
+            }
         }
     }
 }
