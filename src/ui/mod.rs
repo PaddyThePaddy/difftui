@@ -14,7 +14,7 @@ use crate::{
     DiffTuiError,
     ui::{
         app::App, folder_cmp_view::FolderCmpState, hex_cmp_view::HexCmpView, hex_view::HexViewTab,
-        text_cmp_view::TextCmpView, tui::pause_event_stream,
+        menu::Menu, text_cmp_view::TextCmpView, tui::pause_event_stream,
     },
 };
 use crossterm::event::KeyEvent;
@@ -42,8 +42,7 @@ pub enum Action {
     NavDown,
     NavLeft,
     NavRight,
-    NavTop,
-    NavBottom,
+    Goto,
     ExpandSelected,
     CollapseSelected,
     ToggleSelected,
@@ -103,7 +102,6 @@ impl TryFrom<KeyEvent> for Action {
             }
         } else if value.modifiers == KeyModifiers::SHIFT {
             match value.code {
-                KeyCode::Char('G') => Ok(Self::NavBottom),
                 KeyCode::Char('R') => Ok(Self::Reload),
                 KeyCode::Char('O') => Ok(Self::OpenMenu),
                 KeyCode::BackTab => Ok(Self::PrevTab),
@@ -118,7 +116,7 @@ impl TryFrom<KeyEvent> for Action {
                 KeyCode::Char('q') => Ok(Self::CloseTab),
                 KeyCode::Char('c') => Ok(Self::Compare),
                 KeyCode::Char('o') => Ok(Self::Open),
-                KeyCode::Char('g') => Ok(Self::NavTop),
+                KeyCode::Char('g') => Ok(Self::Goto),
                 KeyCode::Char('f') => Ok(Self::PopupFilter),
                 KeyCode::Char('=') => Ok(Self::ToggleCoupling),
                 KeyCode::Enter => Ok(Self::ToggleSelected),
@@ -210,6 +208,44 @@ impl<'a> Popup for JumpToPopup<'a> {
 pub struct Notification {
     pub title: String,
     pub body: String,
+}
+
+#[derive(Debug)]
+pub struct GotoMenu {
+    menu: Menu,
+}
+
+impl Popup for GotoMenu {
+    fn handler(&mut self, event: &crate::ui::tui::Event) -> Option<Action> {
+        self.menu.handler(event)
+    }
+
+    fn render(&mut self, frame: &mut Frame) {
+        self.menu.render(frame);
+    }
+}
+
+impl Default for GotoMenu {
+    fn default() -> Self {
+        Self {
+            menu: Menu::new_with_id(
+                Self::ID.to_string(),
+                "Goto".to_string(),
+                vec![
+                    (Self::TOP.to_string(), Some('g')),
+                    (Self::BOTTOM.to_string(), Some('G')),
+                    (Self::JUMP.to_string(), Some(':')),
+                ],
+            ),
+        }
+    }
+}
+
+impl GotoMenu {
+    pub const ID: &'static str = "GotoMenu";
+    pub const TOP: &'static str = "Top";
+    pub const BOTTOM: &'static str = "Bottom";
+    pub const JUMP: &'static str = "Jump";
 }
 
 #[derive(Debug, Clone, Copy, Default)]

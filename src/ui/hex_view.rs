@@ -18,11 +18,7 @@ use uuid::Uuid;
 
 use crate::{
     DiffTuiError,
-    ui::{
-        EventHandler, JumpToPopup, Notification, Popup, TabState,
-        menu::Menu,
-        tui,
-    },
+    ui::{EventHandler, GotoMenu, JumpToPopup, Notification, Popup, TabState, menu::Menu, tui},
 };
 
 use super::Action;
@@ -164,12 +160,21 @@ impl EventHandler for HexViewTab {
                 self.search_hl = None;
                 self.cached_hl.clear();
             }
-            Action::NavTop => {
-                self.state.set_selected(Some(0));
+            Action::Goto => {
+                return Ok(Some(Action::ShowPopup(Box::new(GotoMenu::default()))));
             }
-            Action::NavBottom => {
-                self.state.set_selected(Some(usize::MAX));
-            }
+            Action::PopupReturn(id, Some(action)) if id == GotoMenu::ID => match action.as_str() {
+                GotoMenu::TOP => {
+                    self.state.set_selected(Some(0));
+                }
+                GotoMenu::BOTTOM => {
+                    self.state.set_selected(Some(usize::MAX));
+                }
+                GotoMenu::JUMP => {
+                    return Ok(Some(Action::ShowPopup(Box::new(JumpToPopup::default()))));
+                }
+                _ => {}
+            },
             Action::TabCustomAction => {
                 let opts = vec![
                     ("Hex search helper".to_string(), Some('h')),
@@ -182,7 +187,9 @@ impl EventHandler for HexViewTab {
             }
             Action::PopupReturn(id, Some(item)) if id == "HexView action" => match item.as_str() {
                 "Hex search helper" => {
-                    return Ok(Some(Action::ShowPopup(Box::new(HexSearchHelper::default()))));
+                    return Ok(Some(Action::ShowPopup(
+                        Box::new(HexSearchHelper::default()),
+                    )));
                 }
                 "Jump to offset" => {
                     return Ok(Some(Action::ShowPopup(Box::new(JumpToPopup::default()))));

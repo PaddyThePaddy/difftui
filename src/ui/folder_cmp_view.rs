@@ -22,7 +22,7 @@ use crate::{
     DiffTuiError,
     diff::{DiffSide, DiffState, dir::DirDiffTree},
     ui::{
-        Action, EventHandler, Notification, Popup, TabState,
+        Action, EventHandler, GotoMenu, JumpToPopup, Notification, Popup, TabState,
         folder_view::{FolderView, FolderViewState},
         hex_cmp_view::HexCmpView,
         loading_msg::{LoadingMsg, LoadingMsgState},
@@ -459,15 +459,59 @@ impl EventHandler for FolderCmpState {
                         *self.lhs_state.selected_mut() = *list_state;
                         *self.rhs_state.selected_mut() = *list_state;
                     }
-                    Action::NavTop => {
-                        list_state.select_first();
-                        *self.lhs_state.selected_mut() = *list_state;
-                        *self.rhs_state.selected_mut() = *list_state;
+                    Action::Goto => {
+                        return Ok(Some(Action::ShowPopup(Box::new(GotoMenu::default()))));
                     }
-                    Action::NavBottom => {
-                        list_state.select_last();
-                        *self.lhs_state.selected_mut() = *list_state;
-                        *self.rhs_state.selected_mut() = *list_state;
+                    Action::PopupReturn(id, Some(action)) if id == GotoMenu::ID => match action
+                        .as_str()
+                    {
+                        GotoMenu::TOP => {
+                            list_state.select_first();
+                            *self.lhs_state.selected_mut() = *list_state;
+                            *self.rhs_state.selected_mut() = *list_state;
+                        }
+                        GotoMenu::BOTTOM => {
+                            list_state.select_last();
+                            *self.lhs_state.selected_mut() = *list_state;
+                            *self.rhs_state.selected_mut() = *list_state;
+                        }
+                        GotoMenu::JUMP => {
+                            return Ok(Some(Action::ShowPopup(Box::new(JumpToPopup::default()))));
+                        }
+                        _ => {}
+                    },
+                    Action::PopupReturn(id, Some(item)) if id == "JumpTo" => {
+                        let item = item.trim();
+
+                        if let Some(item) = item.strip_prefix("0x") {
+                            match usize::from_str_radix(item, 16) {
+                                Ok(i) => {
+                                    list_state.select(Some(i));
+                                    *self.lhs_state.selected_mut() = *list_state;
+                                    *self.rhs_state.selected_mut() = *list_state;
+                                    return Ok(None);
+                                }
+                                Err(e) => {
+                                    return Ok(Some(Action::Notification(Notification {
+                                        title: "Parse index failed".to_string(),
+                                        body: format!("{e}"),
+                                    })));
+                                }
+                            }
+                        }
+                        match usize::from_str_radix(item, 10) {
+                            Ok(i) => {
+                                list_state.select(Some(i));
+                                *self.lhs_state.selected_mut() = *list_state;
+                                *self.rhs_state.selected_mut() = *list_state;
+                            }
+                            Err(e) => {
+                                return Ok(Some(Action::Notification(Notification {
+                                    title: "Parse index failed".to_string(),
+                                    body: format!("{e}"),
+                                })));
+                            }
+                        }
                     }
                     Action::PageDown(factor) => {
                         if let Some(page_height) = self.page_height {

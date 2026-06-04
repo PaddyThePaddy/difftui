@@ -12,7 +12,7 @@ use regex::bytes::Regex;
 use crate::{
     DiffTuiError,
     ui::{
-        EventHandler, JumpToPopup, Notification, TabState,
+        EventHandler, GotoMenu, JumpToPopup, Notification, TabState,
         folder_cmp_view::FolderCmpState,
         hex_view::{HexSearchHelper, HexView, HexViewState, HighlightGroup, get_search_hl},
         menu::Menu,
@@ -230,14 +230,23 @@ impl EventHandler for HexCmpView {
                 self.lhs_cached_hl = None;
                 self.rhs_cached_hl = None;
             }
-            Action::NavTop => {
-                self.lhs_state.set_selected(Some(0));
-                self.rhs_state.set_selected(Some(0));
+            Action::Goto => {
+                return Ok(Some(Action::ShowPopup(Box::new(GotoMenu::default()))));
             }
-            Action::NavBottom => {
-                self.lhs_state.set_selected(Some(usize::MAX));
-                self.rhs_state.set_selected(Some(usize::MAX));
-            }
+            Action::PopupReturn(id, Some(action)) if id == GotoMenu::ID => match action.as_str() {
+                GotoMenu::TOP => {
+                    self.lhs_state.set_selected(Some(0));
+                    self.rhs_state.set_selected(Some(0));
+                }
+                GotoMenu::BOTTOM => {
+                    self.lhs_state.set_selected(Some(usize::MAX));
+                    self.rhs_state.set_selected(Some(usize::MAX));
+                }
+                GotoMenu::JUMP => {
+                    return Ok(Some(Action::ShowPopup(Box::new(JumpToPopup::default()))));
+                }
+                _ => {}
+            },
             Action::TabCustomAction => {
                 let mut opts = vec![
                     ("Reopen with text cmp view".to_string(), Some('t')),
@@ -270,10 +279,9 @@ impl EventHandler for HexCmpView {
                         ))));
                     }
                     "Hex search helper" => {
-                        return Ok(Some(Action::ShowPopup(Box::new(HexSearchHelper::default()))));
-                    }
-                    "Jump to offset" => {
-                        return Ok(Some(Action::ShowPopup(Box::new(JumpToPopup::default()))));
+                        return Ok(Some(Action::ShowPopup(
+                            Box::new(HexSearchHelper::default()),
+                        )));
                     }
                     "Open parent folder in folder cmp view" => {
                         if let Some((lhs, rhs)) = self.lhs_path.parent().zip(self.rhs_path.parent())

@@ -17,8 +17,8 @@ use similar::{ChangeTag, TextDiff};
 use crate::{
     DiffTuiError,
     ui::{
-        Action, EventHandler, Notification, JumpToPopup, TabState, folder_cmp_view::FolderCmpState,
-        hex_cmp_view::HexCmpView, menu::Menu,
+        Action, EventHandler, GotoMenu, JumpToPopup, Notification, TabState,
+        folder_cmp_view::FolderCmpState, hex_cmp_view::HexCmpView, menu::Menu,
     },
 };
 
@@ -177,8 +177,17 @@ impl<'a> EventHandler for TextCmpView<'a> {
             Action::NavUp => self.sel.select_previous(),
             Action::NavRight => self.horzontal_scroll = self.horzontal_scroll.saturating_add(1),
             Action::NavLeft => self.horzontal_scroll = self.horzontal_scroll.saturating_sub(1),
-            Action::NavTop => self.sel.select_first(),
-            Action::NavBottom => self.sel.select_last(),
+            Action::Goto => {
+                return Ok(Some(Action::ShowPopup(Box::new(GotoMenu::default()))));
+            }
+            Action::PopupReturn(id, Some(action)) if id == GotoMenu::ID => match action.as_str() {
+                GotoMenu::TOP => self.sel.select_first(),
+                GotoMenu::BOTTOM => self.sel.select_last(),
+                GotoMenu::JUMP => {
+                    return Ok(Some(Action::ShowPopup(Box::new(JumpToPopup::default()))));
+                }
+                _ => {}
+            },
             Action::PageDown(factor) => {
                 if let Some(page_height) = self.page_height {
                     let line = (page_height as f32 * *factor).floor() as u16;
