@@ -13,7 +13,10 @@ const CMP_BUFFER_SIZE: usize = 4096;
 ///
 /// Returns `Ok(true)` when both files are identical, `Ok(false)` when they
 /// differ, or an [`std::io::Error`] if either file cannot be opened or read.
-pub fn compare_file<LP: AsRef<Path>, RP: AsRef<Path>>(lhs: LP, rhs: RP) -> std::io::Result<DiffState> {
+pub fn compare_file<LP: AsRef<Path>, RP: AsRef<Path>>(
+    lhs: LP,
+    rhs: RP,
+) -> std::io::Result<DiffState> {
     let lhs = lhs.as_ref();
     let rhs = rhs.as_ref();
     trace!("Comparing {} <=> {}", lhs.display(), rhs.display());
@@ -87,14 +90,20 @@ mod tests {
     fn different_content_is_not_same() {
         let a = tmp(b"hello");
         let b = tmp(b"world");
-        assert_eq!(compare_file(a.path(), b.path()).unwrap(), DiffState::Different);
+        assert_eq!(
+            compare_file(a.path(), b.path()).unwrap(),
+            DiffState::Different
+        );
     }
 
     #[test]
     fn same_prefix_different_length_is_not_same() {
         let a = tmp(b"hello");
         let b = tmp(b"hello world");
-        assert_eq!(compare_file(a.path(), b.path()).unwrap(), DiffState::Different);
+        assert_eq!(
+            compare_file(a.path(), b.path()).unwrap(),
+            DiffState::Different
+        );
     }
 
     #[test]
@@ -104,7 +113,10 @@ mod tests {
         *other.last_mut().unwrap() = 1;
         let a = tmp(&content);
         let b = tmp(&other);
-        assert_eq!(compare_file(a.path(), b.path()).unwrap(), DiffState::Different);
+        assert_eq!(
+            compare_file(a.path(), b.path()).unwrap(),
+            DiffState::Different
+        );
     }
 
     #[test]
@@ -123,7 +135,10 @@ mod tests {
         rhs[CMP_BUFFER_SIZE * 2 + 1] = 1;
         let a = tmp(&lhs);
         let b = tmp(&rhs);
-        assert_eq!(compare_file(a.path(), b.path()).unwrap(), DiffState::Different);
+        assert_eq!(
+            compare_file(a.path(), b.path()).unwrap(),
+            DiffState::Different
+        );
     }
 
     #[test]

@@ -364,39 +364,6 @@ fn walk_tree(
     trace!("Tree walker completed");
 }
 
-/// Builds a [`DirDiffTree`] by walking both `lhs` and `rhs` in parallel.
-///
-/// Each path is inserted as [`DiffState::Orphan`] on first sight. If the same
-/// relative path arrives from the other side, its state is promoted to
-/// [`DiffState::Unknown`], indicating it exists on both sides but has not yet
-/// been content-compared. Call [`cmp_tree`] afterwards to resolve all
-/// `Unknown` entries.
-pub fn build_diff_tree(lhs: &Path, rhs: &Path) -> Result<DirDiffTree, DiffTuiError> {
-    unimplemented!()
-}
-
-/// Recursively resolves the [`DiffState`] of every node reachable from `p`.
-///
-/// - **Orphan** entries are returned immediately without further recursion.
-/// - **Directories** are `Same` when all children are `Same`, otherwise
-///   `Different`.
-/// - **Files** are compared by size first, then by full content.
-///
-/// Each node's `diff_state` is updated in place inside the tree so that the
-/// full result is readable from the [`DirDiffTree`] after this call returns.
-///
-/// # Errors
-/// Returns [`DiffTuiError::NodeNotFound`] if `p` is absent from `tree`, or an
-/// I/O error if a file cannot be read.
-pub fn cmp_tree(
-    tree: &DirDiffTree,
-    p: &Path,
-    lhs: &Path,
-    rhs: &Path,
-) -> Result<DiffState, DiffTuiError> {
-    unimplemented!()
-}
-
 #[cfg(test)]
 mod test {
     use super::*;

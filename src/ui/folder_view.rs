@@ -10,11 +10,11 @@ use ratatui::{
     layout::Rect,
     style::{Color, Style},
     symbols::merge::MergeStrategy,
-    text::{Line, Span, Text},
+    text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, StatefulWidget, Widget},
 };
 use regex::bytes::Regex;
-use tracing::{error, trace};
+use tracing::error;
 
 use crate::{
     diff::{DiffSide, DiffState, dir::DirDiffTree},
@@ -451,20 +451,8 @@ impl<'a> FolderView<'a> {
 mod tests {
     use crate::diff::dir::WalkConfig;
 
-use super::*;
-    use ratatui::{
-        Terminal, TerminalOptions, Viewport, buffer::Buffer, layout::Rect, widgets::StatefulWidget,
-    };
-
-    fn make_terminal() -> crate::ui::TuiTerminal {
-        Terminal::with_options(
-            ratatui::backend::CrosstermBackend::new(std::io::stdout()),
-            TerminalOptions {
-                viewport: Viewport::Fixed(Rect::new(0, 0, 80, 24)),
-            },
-        )
-        .unwrap()
-    }
+    use super::*;
+    use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
 
     fn empty_state(side: DiffSide) -> FolderViewState {
         FolderViewState::new(
@@ -530,7 +518,9 @@ use super::*;
     #[test]
     fn render_with_real_tree_populates_items() {
         let base = PathBuf::from("test/folder_cmp/same");
-        let tree = Arc::new(DirDiffTree::new(base.join("lhs"), base.join("rhs"), &WalkConfig::default()).unwrap());
+        let tree = Arc::new(
+            DirDiffTree::new(base.join("lhs"), base.join("rhs"), &WalkConfig::default()).unwrap(),
+        );
         let mut state = FolderViewState::new(DiffSide::Left, tree, ListState::default());
         let area = Rect::new(0, 0, 80, 24);
         let mut buf = Buffer::empty(area);
@@ -541,7 +531,9 @@ use super::*;
     #[test]
     fn render_expanded_dir_shows_more_items() {
         let base = PathBuf::from("test/folder_cmp/same");
-        let tree = Arc::new(DirDiffTree::new(base.join("lhs"), base.join("rhs"), &WalkConfig::default()).unwrap());
+        let tree = Arc::new(
+            DirDiffTree::new(base.join("lhs"), base.join("rhs"), &WalkConfig::default()).unwrap(),
+        );
         let mut state = FolderViewState::new(DiffSide::Left, tree, ListState::default());
         let area = Rect::new(0, 0, 80, 24);
 

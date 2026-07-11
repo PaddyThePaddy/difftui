@@ -11,10 +11,11 @@ pub mod tui;
 use std::{io::stdout, path::PathBuf, time::Duration};
 
 use crate::{
-    DiffTuiConfig, DiffTuiError, ui::{
+    DiffTuiConfig, DiffTuiError,
+    ui::{
         app::App, folder_cmp_view::FolderCmpState, hex_cmp_view::HexCmpView, hex_view::HexViewTab,
         menu::Menu, text_cmp_view::TextCmpView, tui::pause_event_stream,
-    }
+    },
 };
 use crossterm::event::KeyEvent;
 use ratatui::{
@@ -256,7 +257,12 @@ pub enum OpenWith {
     TextView,
 }
 
-pub fn start_tui(lhs: PathBuf, rhs: PathBuf, open_with: OpenWith, config: &DiffTuiConfig) -> Result<(), DiffTuiError> {
+pub fn start_tui(
+    lhs: PathBuf,
+    rhs: PathBuf,
+    open_with: OpenWith,
+    config: &DiffTuiConfig,
+) -> Result<(), DiffTuiError> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_time()
         .build()

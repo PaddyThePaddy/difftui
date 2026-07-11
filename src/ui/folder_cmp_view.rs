@@ -19,7 +19,9 @@ use regex::bytes::Regex;
 use tracing::{error, trace};
 
 use crate::{
-    DiffTuiConfig, DiffTuiError, diff::{DiffSide, DiffState, dir::{DirDiffTree, WalkConfig}}, ui::{
+    DiffTuiConfig, DiffTuiError,
+    diff::{DiffSide, DiffState, dir::DirDiffTree},
+    ui::{
         Action, EventHandler, GotoMenu, JumpToPopup, Notification, Popup, TabState,
         folder_view::{FolderView, FolderViewState},
         hex_cmp_view::HexCmpView,
@@ -27,7 +29,7 @@ use crate::{
         menu::Menu,
         text_cmp_view::TextCmpView,
         tui,
-    }
+    },
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -59,7 +61,11 @@ pub struct FolderCmpState {
 }
 
 impl FolderCmpState {
-    pub fn new(lhs: impl AsRef<Path>, rhs: impl AsRef<Path>, config: &DiffTuiConfig) -> Result<Self, DiffTuiError> {
+    pub fn new(
+        lhs: impl AsRef<Path>,
+        rhs: impl AsRef<Path>,
+        config: &DiffTuiConfig,
+    ) -> Result<Self, DiffTuiError> {
         let lhs = lhs.as_ref();
         let rhs = rhs.as_ref();
 
@@ -100,7 +106,7 @@ impl FolderCmpState {
             filtered_tree: None,
             page_height: None,
             highlight: None,
-            config: config.clone()
+            config: config.clone(),
         })
     }
 
@@ -259,68 +265,70 @@ impl EventHandler for FolderCmpState {
                 self.filter_text = lines;
                 self.set_filters(filters);
             }
-            Action::PopupReturn(id, Some(body)) if id == "Open" => match body.as_str() {
-                "neovim diff" => {
-                    if let Some((lhs, rhs)) = self
-                        .lhs_state
-                        .selected_path()
-                        .zip(self.rhs_state.selected_path())
-                    {
-                        let lhs_path = self.lhs_path.join(lhs);
-                        let rhs_path = self.rhs_path.join(rhs);
-                        let mut cmd = std::process::Command::new("nvim");
-                        cmd.arg("-d").arg(lhs_path).arg(rhs_path);
-                        return Ok(Some(Action::RunExtApp(cmd)));
+            Action::PopupReturn(id, Some(body)) if id == "Open" => {
+                match body.as_str() {
+                    "neovim diff" => {
+                        if let Some((lhs, rhs)) = self
+                            .lhs_state
+                            .selected_path()
+                            .zip(self.rhs_state.selected_path())
+                        {
+                            let lhs_path = self.lhs_path.join(lhs);
+                            let rhs_path = self.rhs_path.join(rhs);
+                            let mut cmd = std::process::Command::new("nvim");
+                            cmd.arg("-d").arg(lhs_path).arg(rhs_path);
+                            return Ok(Some(Action::RunExtApp(cmd)));
+                        }
+                        return Ok(None);
                     }
-                    return Ok(None);
-                }
-                "new tab" => {
-                    if let Some((lhs, rhs)) = self
-                        .lhs_state
-                        .selected_path()
-                        .zip(self.rhs_state.selected_path())
-                    {
-                        let lhs = self.lhs_path.join(lhs);
-                        let rhs = self.rhs_path.join(rhs);
-                        let config = self.config.clone().into();
-                        return Ok(Some(Action::CreateTabAndSwitch(Box::new(
-                            FolderCmpState::new(lhs, rhs, &config)?,
-                        ))));
+                    "new tab" => {
+                        if let Some((lhs, rhs)) = self
+                            .lhs_state
+                            .selected_path()
+                            .zip(self.rhs_state.selected_path())
+                        {
+                            let lhs = self.lhs_path.join(lhs);
+                            let rhs = self.rhs_path.join(rhs);
+                            let config = self.config.clone().into();
+                            return Ok(Some(Action::CreateTabAndSwitch(Box::new(
+                                FolderCmpState::new(lhs, rhs, &config)?,
+                            ))));
+                        }
+                    }
+                    "new file tab" => {
+                        if let Some((lhs, rhs)) = self
+                            .lhs_state
+                            .selected_path()
+                            .zip(self.rhs_state.selected_path())
+                        {
+                            let lhs = self.lhs_path.join(lhs);
+                            let rhs = self.rhs_path.join(rhs);
+                            return Ok(Some(Action::CreateTabAndSwitch(Box::new(
+                                TextCmpView::new(lhs, rhs, &self.config)?,
+                            ))));
+                        }
+                    }
+                    "new hex tab" => {
+                        if let Some((lhs, rhs)) = self
+                            .lhs_state
+                            .selected_path()
+                            .zip(self.rhs_state.selected_path())
+                        {
+                            let lhs = self.lhs_path.join(lhs);
+                            let rhs = self.rhs_path.join(rhs);
+                            return Ok(Some(Action::CreateTabAndSwitch(Box::new(
+                                HexCmpView::new(lhs, rhs, &self.config)?,
+                            ))));
+                        }
+                    }
+                    _ => {
+                        return Ok(Some(Action::Notification(Notification {
+                            title: "Unknown option".to_string(),
+                            body: format!("Unknown body: {body}"),
+                        })));
                     }
                 }
-                "new file tab" => {
-                    if let Some((lhs, rhs)) = self
-                        .lhs_state
-                        .selected_path()
-                        .zip(self.rhs_state.selected_path())
-                    {
-                        let lhs = self.lhs_path.join(lhs);
-                        let rhs = self.rhs_path.join(rhs);
-                        return Ok(Some(Action::CreateTabAndSwitch(Box::new(
-                            TextCmpView::new(lhs, rhs, &self.config)?,
-                        ))));
-                    }
-                }
-                "new hex tab" => {
-                    if let Some((lhs, rhs)) = self
-                        .lhs_state
-                        .selected_path()
-                        .zip(self.rhs_state.selected_path())
-                    {
-                        let lhs = self.lhs_path.join(lhs);
-                        let rhs = self.rhs_path.join(rhs);
-                        return Ok(Some(Action::CreateTabAndSwitch(Box::new(HexCmpView::new(
-                            lhs, rhs, &self.config
-                        )?))));
-                    }
-                }
-                _ => {
-                    return Ok(Some(Action::Notification(Notification {
-                        title: "Unknown option".to_string(),
-                        body: format!("Unknown body: {body}"),
-                    })));
-                }
-            },
+            }
             Action::PopupReturn(id, Some(body)) if id == "Compare" => match body.as_str() {
                 "Selected" => {
                     if let Some(selected_p) = self.lhs_state.selected_path() {
@@ -779,7 +787,7 @@ impl TabState for FolderCmpState {
         Ok(Some(Box::new(FolderCmpState::new(
             self.lhs_path.as_path(),
             self.rhs_path.as_path(),
-            &config
+            &config,
         )?)))
     }
 }
@@ -914,18 +922,6 @@ impl<'ta> Popup for FilterPopup<'ta> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::TuiTerminal;
-    use ratatui::{Terminal, TerminalOptions, Viewport, layout::Rect};
-
-    fn make_terminal() -> TuiTerminal {
-        Terminal::with_options(
-            ratatui::backend::CrosstermBackend::new(std::io::stdout()),
-            TerminalOptions {
-                viewport: Viewport::Fixed(Rect::new(0, 0, 80, 24)),
-            },
-        )
-        .unwrap()
-    }
 
     fn fixture_state() -> FolderCmpState {
         let base = PathBuf::from("test/folder_cmp/same");

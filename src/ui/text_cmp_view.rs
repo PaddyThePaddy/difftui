@@ -15,10 +15,12 @@ use similar::{DiffOp, DiffTag, TextDiff};
 use tracing::error;
 
 use crate::{
-    DiffTuiConfig, DiffTuiError, diff::DiffSide, ui::{
+    DiffTuiConfig, DiffTuiError,
+    diff::DiffSide,
+    ui::{
         Action, EventHandler, GotoMenu, JumpToPopup, Notification, TabState,
         folder_cmp_view::FolderCmpState, hex_cmp_view::HexCmpView, menu::Menu,
-    }
+    },
 };
 
 fn find_diff_op(ops: &[DiffOp], index: usize, side: DiffSide) -> Result<DiffOp, DiffTuiError> {
@@ -310,7 +312,7 @@ impl TextCmpView {
             diff_hunks,
             lhs_line_map,
             rhs_line_map,
-            config: config.clone()
+            config: config.clone(),
         })
     }
 
@@ -580,7 +582,7 @@ impl EventHandler for TextCmpView {
                         return Ok(Some(Action::CreateTabAndSwitch(Box::new(HexCmpView::new(
                             self.lhs_path.clone(),
                             self.rhs_path.clone(),
-                            &self.config
+                            &self.config,
                         )?))));
                     }
                     "Open parent folder in folder cmp view" => {
@@ -769,7 +771,7 @@ impl TabState for TextCmpView {
         Ok(Some(Box::new(TextCmpView::new(
             self.lhs_path.clone(),
             self.rhs_path.clone(),
-            &self.config
+            &self.config,
         )?)))
     }
 }

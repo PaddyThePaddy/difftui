@@ -10,13 +10,14 @@ use ratatui::{
 use regex::bytes::Regex;
 
 use crate::{
-    DiffTuiConfig, DiffTuiError, ui::{
+    DiffTuiConfig, DiffTuiError,
+    ui::{
         EventHandler, GotoMenu, JumpToPopup, Notification, TabState,
         folder_cmp_view::FolderCmpState,
         hex_view::{HexSearchHelper, HexView, HexViewState, HighlightGroup, get_search_hl},
         menu::Menu,
         text_cmp_view::TextCmpView,
-    }
+    },
 };
 
 use super::Action;
@@ -276,7 +277,11 @@ impl EventHandler for HexCmpView {
                 match item.as_str() {
                     "Reopen with text cmp view" => {
                         return Ok(Some(Action::CreateTabAndSwitch(Box::new(
-                            TextCmpView::new(self.lhs_path.clone(), self.rhs_path.clone(), &self.config)?,
+                            TextCmpView::new(
+                                self.lhs_path.clone(),
+                                self.rhs_path.clone(),
+                                &self.config,
+                            )?,
                         ))));
                     }
                     "Hex search helper" => {
@@ -385,7 +390,7 @@ impl TabState for HexCmpView {
         Ok(Some(Box::new(HexCmpView::new(
             self.lhs_path.clone(),
             self.rhs_path.clone(),
-            &self.config
+            &self.config,
         )?)))
     }
 }
