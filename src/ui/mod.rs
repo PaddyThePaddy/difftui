@@ -158,7 +158,7 @@ pub trait Popup: std::fmt::Debug {
         let area = frame.area();
         let buf = frame.buffer_mut();
         let popup_area = area.centered(hor, ver);
-        Clear::default().render(popup_area, buf);
+        Clear.render(popup_area, buf);
         (popup_area, buf)
     }
 }

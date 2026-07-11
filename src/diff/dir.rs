@@ -130,16 +130,11 @@ impl DirDiffTree {
                 }
             }
 
-            if !tree.contains_key(&p) {
-                tree.insert(
-                    p,
-                    TreeNode {
-                        metadata: meta,
-                        children: vec![],
-                        children_non_dir: vec![],
-                    },
-                );
-            }
+            tree.entry(p).or_insert_with(|| TreeNode {
+                metadata: meta,
+                children: vec![],
+                children_non_dir: vec![],
+            });
         }
         trace!("All tree nodes enumerated");
 
@@ -168,7 +163,7 @@ impl DirDiffTree {
     }
 
     fn cmp_file(&self, p: &Path) -> Result<DiffState, DiffTuiError> {
-        let ds = compare_file(self.lhs.join(&p), self.rhs.join(&p))?;
+        let ds = compare_file(self.lhs.join(p), self.rhs.join(p))?;
         self.diff_map
             .lock()
             .expect("Lock diff_map failed")
@@ -254,7 +249,7 @@ impl DirDiffTree {
             )
         }
 
-        return Ok(ds);
+        Ok(ds)
     }
 
     pub fn get_diff_state(&self, p: &Path) -> DiffState {
@@ -262,7 +257,7 @@ impl DirDiffTree {
             .lock()
             .expect("Locking diff_map failed")
             .get(p)
-            .map(|ds| *ds)
+            .copied()
             .unwrap_or(DiffState::Unknown)
     }
 
@@ -343,16 +338,19 @@ fn walk_tree(
                     error!("Walk {} error {e}", cwd.as_path().display());
                 }
                 Ok(entry) => {
-                    if let Err(_) = sender.send((
-                        entry
-                            .path()
-                            .strip_prefix(&cwd)
-                            .map(|p| p.to_path_buf())
-                            .unwrap_or(entry.path().to_path_buf()),
-                        // TODO: error handling
-                        entry.metadata().unwrap(),
-                        side,
-                    )) {
+                    if sender
+                        .send((
+                            entry
+                                .path()
+                                .strip_prefix(&cwd)
+                                .map(|p| p.to_path_buf())
+                                .unwrap_or(entry.path().to_path_buf()),
+                            // TODO: error handling
+                            entry.metadata().unwrap(),
+                            side,
+                        ))
+                        .is_err()
+                    {
                         error!("Send while channel disconnected");
                     };
                 }

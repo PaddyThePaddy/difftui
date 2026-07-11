@@ -33,7 +33,7 @@ impl SearchState {
     }
 
     pub fn is_none(&self) -> bool {
-        if let Self::None = self { true } else { false }
+        matches!(self, Self::None)
     }
 
     pub fn text(&self) -> Option<&str> {
@@ -109,14 +109,13 @@ impl App {
     }
 
     fn handle_event(&mut self, evt: tui::Event) -> Option<Action> {
-        if let tui::Event::Key(key) = evt {
-            if let KeyCode::Char('c') = key.code {
-                if key.modifiers == KeyModifiers::CONTROL {
-                    return Some(Action::ExitApp(None));
-                }
-            }
+        if let tui::Event::Key(key) = evt
+            && let KeyCode::Char('c') = key.code
+            && key.modifiers == KeyModifiers::CONTROL
+        {
+            return Some(Action::ExitApp(None));
         }
-        if let Some(_) = &self.showing_notify {
+        if self.showing_notify.is_some() {
             if let tui::Event::Key(key) = evt {
                 match key.code {
                     KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => {
@@ -207,34 +206,34 @@ impl App {
         match act {
             Action::ShowPopup(popup) => {
                 self.popup = Some(popup);
-                return Ok(None);
+                Ok(None)
             }
             Action::Notification(notify) => {
                 self.notify_scroll = (0, 0);
                 self.showing_notify = Some(notify);
-                return Ok(None);
+                Ok(None)
             }
             Action::PrevTab => {
                 if self.current_tab == 0 {
-                    if self.tabs.len() > 0 {
+                    if !self.tabs.is_empty() {
                         self.current_tab = self.tabs.len() - 1;
                     }
                 } else {
                     self.current_tab -= 1;
                 }
-                return Ok(None);
+                Ok(None)
             }
             Action::NextTab => {
                 self.current_tab = self.current_tab.wrapping_add(1);
                 if self.current_tab == self.tabs.len() {
                     self.current_tab = 0;
                 }
-                return Ok(None);
+                Ok(None)
             }
             Action::CreateTabAndSwitch(new_tab) => {
                 self.tabs.push(new_tab);
                 self.current_tab = self.tabs.len() - 1;
-                return Ok(None);
+                Ok(None)
             }
             Action::CloseTab => {
                 self.tabs.remove(self.current_tab);
@@ -244,51 +243,49 @@ impl App {
                 if self.current_tab >= self.tabs.len() {
                     self.current_tab = self.tabs.len() - 1;
                 }
-                return Ok(None);
+                Ok(None)
             }
             Action::RunExtApp(mut cmd) => {
                 let return_code = run_ext_tui_app(&mut cmd, terminal)?;
-                return Ok(Some(Action::ExtAppReturn(return_code)));
+                Ok(Some(Action::ExtAppReturn(return_code)))
             }
-            Action::ShowHelp => {
-                return Ok(Some(Action::Notification(Notification {
-                    title: "Help".to_string(),
-                    body: vec![
-                        "Arrow keys / hjkl => Navigation",
-                        "q        => Closet tab",
-                        "c        => Compare selected file/folder",
-                        "o        => Open selected filde / folder",
-                        "o        => Open selected filde / folder with option",
-                        "g        => Move to top",
-                        "G        => Move to bottom",
-                        "f        => Filter files",
-                        "z        => Tab specific actions",
-                        "R        => Reload tab",
-                        "x        => Swap sides",
-                        "/        => Search",
-                        "n / N    => Search next/previous",
-                        "][       => Next/Previous difference",
-                        "=        => Decouple side-by-side view",
-                        "Enter    => Expand/Collapse",
-                        "Ctrl + c => Exit app",
-                        "? / F1   => Show help",
-                    ]
-                    .join("\n"),
-                })));
-            }
+            Action::ShowHelp => Ok(Some(Action::Notification(Notification {
+                title: "Help".to_string(),
+                body: vec![
+                    "Arrow keys / hjkl => Navigation",
+                    "q        => Closet tab",
+                    "c        => Compare selected file/folder",
+                    "o        => Open selected filde / folder",
+                    "o        => Open selected filde / folder with option",
+                    "g        => Move to top",
+                    "G        => Move to bottom",
+                    "f        => Filter files",
+                    "z        => Tab specific actions",
+                    "R        => Reload tab",
+                    "x        => Swap sides",
+                    "/        => Search",
+                    "n / N    => Search next/previous",
+                    "][       => Next/Previous difference",
+                    "=        => Decouple side-by-side view",
+                    "Enter    => Expand/Collapse",
+                    "Ctrl + c => Exit app",
+                    "? / F1   => Show help",
+                ]
+                .join("\n"),
+            }))),
             Action::EditSearch(s) => {
                 if let Some(s) = s {
                     self.search_state = SearchState::Editing(s);
                 } else {
                     self.search_state = SearchState::Editing(String::new());
                 }
-                return Ok(None);
+                Ok(None)
             }
             Action::Reload => {
                 if let Some(new_tab) = self.tabs[self.current_tab].reload()? {
                     self.tabs[self.current_tab] = new_tab;
                 }
-                return Ok(None);
+                Ok(None)
             }
             _ => {
                 if let Some(tab) = self.tabs.get_mut(self.current_tab) {
@@ -359,7 +356,7 @@ impl App {
             Constraint::Max(height as u16),
         );
 
-        Clear::default().render(notify_area, buf);
+        Clear.render(notify_area, buf);
         Paragraph::new(notify.body.as_str())
             .scroll(self.notify_scroll)
             .block(

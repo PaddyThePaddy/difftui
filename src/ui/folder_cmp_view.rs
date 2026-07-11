@@ -91,8 +91,8 @@ impl FolderCmpState {
         Ok(Self {
             lhs_path: lhs.to_path_buf(),
             rhs_path: rhs.to_path_buf(),
-            lhs_state: lhs_state,
-            rhs_state: rhs_state,
+            lhs_state,
+            rhs_state,
             expanded_pathes: HashSet::new(),
             focus: FocusState::Synced(ListState::default().with_selected(Some(0))),
             tree,
@@ -130,7 +130,7 @@ impl FolderCmpState {
         let mut map = HashSet::new();
         map.insert(PathBuf::from(""));
         Self::build_display_map_worker(&self.tree, &self.filters, Path::new(""), &mut map);
-        return map;
+        map
     }
 
     fn build_display_map_worker(
@@ -161,7 +161,7 @@ impl FolderCmpState {
             map.insert(p.to_path_buf());
         }
 
-        return should_display;
+        should_display
     }
 }
 
@@ -176,50 +176,48 @@ impl EventHandler for FolderCmpState {
                 .cmp_in_progress
                 .as_ref()
                 .is_some_and(|h| h.is_finished())
+                && let Some(h) = self.cmp_in_progress.take()
+                && let Err(e) = h.join()
             {
-                if let Some(h) = self.cmp_in_progress.take() {
-                    if let Err(e) = h.join() {
-                        error!("Comparing thread panic: {e:?}");
-                        return Ok(Some(Action::Notification(Notification {
-                            title: "Alert".to_string(),
-                            body: format!("Comparing thread panic: {e:?}"),
-                        })));
-                    }
-                }
+                error!("Comparing thread panic: {e:?}");
+                return Ok(Some(Action::Notification(Notification {
+                    title: "Alert".to_string(),
+                    body: format!("Comparing thread panic: {e:?}"),
+                })));
             }
 
-            if self.loading_tree.as_ref().is_some_and(|h| h.is_finished()) {
-                if let Some(h) = self.loading_tree.take() {
-                    match h.join() {
-                        Ok(tree) => match tree {
-                            Ok(tree) => {
-                                let tree = Arc::new(tree);
-                                self.lhs_state = FolderViewState::new(
-                                    DiffSide::Left,
-                                    tree.clone(),
-                                    ListState::default().with_selected(Some(0)),
-                                );
-                                self.rhs_state = FolderViewState::new(
-                                    DiffSide::Right,
-                                    tree.clone(),
-                                    ListState::default().with_selected(Some(0)),
-                                );
-                                self.tree = tree;
-                                self.display_map = self.build_display_map();
-                            }
-                            Err(e) => {
-                                error!("Build tree failed: {e:?}");
-                                return Ok(Some(Action::ExitApp(Some(format!(
-                                    "Build tree failed: {e:?}"
-                                )))));
-                            }
-                        },
+            if self.loading_tree.as_ref().is_some_and(|h| h.is_finished())
+                && let Some(h) = self.loading_tree.take()
+            {
+                match h.join() {
+                    Ok(tree) => match tree {
+                        Ok(tree) => {
+                            let tree = Arc::new(tree);
+                            self.lhs_state = FolderViewState::new(
+                                DiffSide::Left,
+                                tree.clone(),
+                                ListState::default().with_selected(Some(0)),
+                            );
+                            self.rhs_state = FolderViewState::new(
+                                DiffSide::Right,
+                                tree.clone(),
+                                ListState::default().with_selected(Some(0)),
+                            );
+                            self.tree = tree;
+                            self.display_map = self.build_display_map();
+                        }
                         Err(e) => {
                             error!("Build tree failed: {e:?}");
                             return Ok(Some(Action::ExitApp(Some(format!(
                                 "Build tree failed: {e:?}"
                             )))));
                         }
+                    },
+                    Err(e) => {
+                        error!("Build tree failed: {e:?}");
+                        return Ok(Some(Action::ExitApp(Some(format!(
+                            "Build tree failed: {e:?}"
+                        )))));
                     }
                 }
             }
@@ -289,7 +287,7 @@ impl EventHandler for FolderCmpState {
                         {
                             let lhs = self.lhs_path.join(lhs);
                             let rhs = self.rhs_path.join(rhs);
-                            let config = self.config.clone().into();
+                            let config = self.config.clone();
                             return Ok(Some(Action::CreateTabAndSwitch(Box::new(
                                 FolderCmpState::new(lhs, rhs, &config)?,
                             ))));
@@ -339,7 +337,7 @@ impl EventHandler for FolderCmpState {
                             let p = selected_p.clone();
                             self.cmp_in_progress = Some(std::thread::spawn(move || {
                                 tree.cmp_node(&p)?;
-                                return Ok::<(), DiffTuiError>(());
+                                Ok::<(), DiffTuiError>(())
                             }));
                         }
                     }
@@ -360,7 +358,7 @@ impl EventHandler for FolderCmpState {
                         };
                         self.cmp_in_progress = Some(std::thread::spawn(move || {
                             tree.cmp_node(Path::new(""))?;
-                            return Ok::<(), DiffTuiError>(());
+                            Ok::<(), DiffTuiError>(())
                         }));
                     }
                 }
@@ -371,7 +369,7 @@ impl EventHandler for FolderCmpState {
                     "Open parent folder in folder cmp view" => {
                         if let Some((lhs, rhs)) = self.lhs_path.parent().zip(self.rhs_path.parent())
                         {
-                            let config = self.config.clone().into();
+                            let config = self.config.clone();
                             return Ok(Some(Action::CreateTabAndSwitch(Box::new(
                                 FolderCmpState::new(lhs, rhs, &config)?,
                             ))));
@@ -418,7 +416,7 @@ impl EventHandler for FolderCmpState {
                 {
                     let lhs_path = self.lhs_path.join(lhs);
                     let rhs_path = self.rhs_path.join(rhs);
-                    let config = self.config.clone().into();
+                    let config = self.config.clone();
                     if lhs_path.is_dir() && rhs_path.is_dir() {
                         return Ok(Some(Action::CreateTabAndSwitch(Box::new(
                             FolderCmpState::new(lhs_path, rhs_path, &config)?,
@@ -511,7 +509,7 @@ impl EventHandler for FolderCmpState {
                                 }
                             }
                         }
-                        match usize::from_str_radix(item, 10) {
+                        match item.parse() {
                             Ok(i) => {
                                 list_state.select(Some(i));
                                 *self.lhs_state.selected_mut() = *list_state;
@@ -779,11 +777,11 @@ impl TabState for FolderCmpState {
 
     fn render(&mut self, area: Rect, buf: &mut Buffer) {
         self.page_height = Some(area.height - 2);
-        FolderCmpView::default().render(area, buf, self);
+        FolderCmpView.render(area, buf, self);
     }
 
     fn reload(&mut self) -> Result<Option<Box<dyn TabState>>, DiffTuiError> {
-        let config = self.config.clone().into();
+        let config = self.config.clone();
         Ok(Some(Box::new(FolderCmpState::new(
             self.lhs_path.as_path(),
             self.rhs_path.as_path(),
@@ -906,7 +904,7 @@ impl<'ta> Popup for FilterPopup<'ta> {
             }
             return None;
         }
-        return None;
+        None
     }
 
     fn render(&mut self, frame: &mut Frame) {

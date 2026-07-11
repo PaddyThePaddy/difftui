@@ -120,14 +120,14 @@ impl EventHandler for HexCmpView {
                 }
             }
             Action::SearchNext(r) => {
-                if !self
+                if self
                     .search_hl
                     .as_ref()
-                    .is_some_and(|hl| hl.as_str() == r.as_str())
+                    .is_none_or(|hl| hl.as_str() != r.as_str())
                 {
                     self.search_hl = Some(r.clone());
-                    self.lhs_search_hl = get_search_hl(&self.lhs_buf, &r);
-                    self.rhs_search_hl = get_search_hl(&self.rhs_buf, &r);
+                    self.lhs_search_hl = get_search_hl(&self.lhs_buf, r);
+                    self.rhs_search_hl = get_search_hl(&self.rhs_buf, r);
                     self.lhs_cached_hl = None;
                     self.rhs_cached_hl = None;
                 }
@@ -137,19 +137,19 @@ impl EventHandler for HexCmpView {
                 if let Some(hl) = self.lhs_search_hl.iter().find(|hl| hl.start > current) {
                     jump_to = Some(hl.start);
                 }
-                if let Some(m) = self.rhs_search_hl.iter().find(|hl| hl.start > current) {
-                    if jump_to.is_none() || jump_to.is_some_and(|n| m.start < n) {
-                        jump_to = Some(m.start);
-                    }
+                if let Some(m) = self.rhs_search_hl.iter().find(|hl| hl.start > current)
+                    && (jump_to.is_none() || jump_to.is_some_and(|n| m.start < n))
+                {
+                    jump_to = Some(m.start);
                 }
                 if jump_to.is_none() && current != 0 {
                     if let Some(m) = self.lhs_search_hl.iter().find(|hl| hl.end() <= current) {
                         jump_to = Some(m.start);
                     }
-                    if let Some(m) = self.rhs_search_hl.iter().find(|hl| hl.end() <= current) {
-                        if jump_to.is_none() || jump_to.is_some_and(|n| n > m.start) {
-                            jump_to = Some(m.start);
-                        }
+                    if let Some(m) = self.rhs_search_hl.iter().find(|hl| hl.end() <= current)
+                        && (jump_to.is_none() || jump_to.is_some_and(|n| n > m.start))
+                    {
+                        jump_to = Some(m.start);
                     }
                 }
                 if let Some(jump_to) = jump_to {
@@ -163,14 +163,14 @@ impl EventHandler for HexCmpView {
                 }
             }
             Action::SearchPrev(r) => {
-                if !self
+                if self
                     .search_hl
                     .as_ref()
-                    .is_some_and(|hl| hl.as_str() == r.as_str())
+                    .is_none_or(|hl| hl.as_str() != r.as_str())
                 {
                     self.search_hl = Some(r.clone());
-                    self.lhs_search_hl = get_search_hl(&self.lhs_buf, &r);
-                    self.rhs_search_hl = get_search_hl(&self.rhs_buf, &r);
+                    self.lhs_search_hl = get_search_hl(&self.lhs_buf, r);
+                    self.rhs_search_hl = get_search_hl(&self.rhs_buf, r);
                     self.lhs_cached_hl = None;
                     self.rhs_cached_hl = None;
                 }
@@ -181,7 +181,7 @@ impl EventHandler for HexCmpView {
                     .lhs_search_hl
                     .iter()
                     .filter(|hl| hl.end() <= current)
-                    .last()
+                    .next_back()
                 {
                     jump_to = Some(m.start);
                 }
@@ -189,18 +189,17 @@ impl EventHandler for HexCmpView {
                     .rhs_search_hl
                     .iter()
                     .filter(|hl| hl.end() <= current)
-                    .last()
+                    .next_back()
+                    && (jump_to.is_none() || jump_to.is_some_and(|n| m.start > n))
                 {
-                    if jump_to.is_none() || jump_to.is_some_and(|n| m.start > n) {
-                        jump_to = Some(m.start);
-                    }
+                    jump_to = Some(m.start);
                 }
                 if jump_to.is_none() && current != 0 {
                     if let Some(m) = self
                         .lhs_search_hl
                         .iter()
                         .filter(|hl| hl.start > current)
-                        .last()
+                        .next_back()
                     {
                         jump_to = Some(m.start);
                     }
@@ -208,11 +207,10 @@ impl EventHandler for HexCmpView {
                         .rhs_search_hl
                         .iter()
                         .filter(|hl| hl.start > current)
-                        .last()
+                        .next_back()
+                        && (jump_to.is_none() || jump_to.is_some_and(|n| m.start > n))
                     {
-                        if jump_to.is_none() || jump_to.is_some_and(|n| m.start > n) {
-                            jump_to = Some(m.start);
-                        }
+                        jump_to = Some(m.start);
                     }
                 }
                 if let Some(jump_to) = jump_to {
@@ -318,7 +316,7 @@ impl EventHandler for HexCmpView {
                         }
                     }
                 }
-                match usize::from_str_radix(item, 10) {
+                match item.parse() {
                     Ok(i) => {
                         self.lhs_state.set_selected(Some(i));
                         self.rhs_state.set_selected(Some(i));
@@ -370,7 +368,7 @@ impl TabState for HexCmpView {
 
         StatefulWidget::render(
             HexView::new(&self.lhs_buf)
-                .set_hl_groups(self.lhs_cached_hl.as_ref().map(|v| v.as_slice()))
+                .set_hl_groups(self.lhs_cached_hl.as_deref())
                 .block(Block::bordered().merge_borders(MergeStrategy::Exact)),
             lhs_area,
             buf,
@@ -378,7 +376,7 @@ impl TabState for HexCmpView {
         );
         StatefulWidget::render(
             HexView::new(&self.rhs_buf)
-                .set_hl_groups(self.rhs_cached_hl.as_ref().map(|v| v.as_slice()))
+                .set_hl_groups(self.rhs_cached_hl.as_deref())
                 .block(Block::bordered().merge_borders(MergeStrategy::Exact)),
             rhs_area,
             buf,
@@ -418,8 +416,8 @@ fn build_title(lhs: &Path, rhs: &Path) -> Option<String> {
             } else {
                 title = Some(format!(
                     "{}<=>{}/{}:X",
-                    lhs_parent.map(|s| s.to_str()).flatten().unwrap_or("\"\""),
-                    rhs_parent.map(|s| s.to_str()).flatten().unwrap_or("\"\""),
+                    lhs_parent.and_then(|s| s.to_str()).unwrap_or("\"\""),
+                    rhs_parent.and_then(|s| s.to_str()).unwrap_or("\"\""),
                     lhs_base
                 ));
             }

@@ -69,13 +69,13 @@ impl EventHandler for HexViewTab {
                 self.state.move_sel_down_page(*fac);
             }
             Action::SearchNext(r) => {
-                if !self
+                if self
                     .search_hl
                     .as_ref()
-                    .is_some_and(|hl| hl.as_str() == r.as_str())
+                    .is_none_or(|hl| hl.as_str() != r.as_str())
                 {
                     self.search_hl = Some(r.clone());
-                    self.cached_hl = get_search_hl(&self.buf, &r);
+                    self.cached_hl = get_search_hl(&self.buf, r);
                 }
 
                 let current = self.state.selected().unwrap_or(0);
@@ -83,19 +83,19 @@ impl EventHandler for HexViewTab {
                 if let Some(hl) = self.cached_hl.iter().find(|hl| hl.start > current) {
                     jump_to = Some(hl.start);
                 }
-                if let Some(m) = self.cached_hl.iter().find(|hl| hl.start > current) {
-                    if jump_to.is_none() || jump_to.is_some_and(|n| m.start < n) {
-                        jump_to = Some(m.start);
-                    }
+                if let Some(m) = self.cached_hl.iter().find(|hl| hl.start > current)
+                    && (jump_to.is_none() || jump_to.is_some_and(|n| m.start < n))
+                {
+                    jump_to = Some(m.start);
                 }
                 if jump_to.is_none() && current != 0 {
                     if let Some(m) = self.cached_hl.iter().find(|hl| hl.end() <= current) {
                         jump_to = Some(m.start);
                     }
-                    if let Some(m) = self.cached_hl.iter().find(|hl| hl.end() <= current) {
-                        if jump_to.is_none() || jump_to.is_some_and(|n| n > m.start) {
-                            jump_to = Some(m.start);
-                        }
+                    if let Some(m) = self.cached_hl.iter().find(|hl| hl.end() <= current)
+                        && (jump_to.is_none() || jump_to.is_some_and(|n| n > m.start))
+                    {
+                        jump_to = Some(m.start);
                     }
                 }
                 if let Some(jump_to) = jump_to {
@@ -108,13 +108,13 @@ impl EventHandler for HexViewTab {
                 }
             }
             Action::SearchPrev(r) => {
-                if !self
+                if self
                     .search_hl
                     .as_ref()
-                    .is_some_and(|hl| hl.as_str() == r.as_str())
+                    .is_none_or(|hl| hl.as_str() != r.as_str())
                 {
                     self.search_hl = Some(r.clone());
-                    self.cached_hl = get_search_hl(&self.buf, &r);
+                    self.cached_hl = get_search_hl(&self.buf, r);
                 }
 
                 let current = self.state.selected().unwrap_or(0);
@@ -123,7 +123,7 @@ impl EventHandler for HexViewTab {
                     .cached_hl
                     .iter()
                     .filter(|hl| hl.end() <= current)
-                    .last()
+                    .next_back()
                 {
                     jump_to = Some(m.start);
                 }
@@ -131,20 +131,28 @@ impl EventHandler for HexViewTab {
                     .cached_hl
                     .iter()
                     .filter(|hl| hl.end() <= current)
-                    .last()
+                    .next_back()
+                    && (jump_to.is_none() || jump_to.is_some_and(|n| m.start > n))
                 {
-                    if jump_to.is_none() || jump_to.is_some_and(|n| m.start > n) {
-                        jump_to = Some(m.start);
-                    }
+                    jump_to = Some(m.start);
                 }
                 if jump_to.is_none() && current != 0 {
-                    if let Some(m) = self.cached_hl.iter().filter(|hl| hl.start > current).last() {
+                    if let Some(m) = self
+                        .cached_hl
+                        .iter()
+                        .filter(|hl| hl.start > current)
+                        .next_back()
+                    {
                         jump_to = Some(m.start);
                     }
-                    if let Some(m) = self.cached_hl.iter().filter(|hl| hl.start > current).last() {
-                        if jump_to.is_none() || jump_to.is_some_and(|n| m.start > n) {
-                            jump_to = Some(m.start);
-                        }
+                    if let Some(m) = self
+                        .cached_hl
+                        .iter()
+                        .filter(|hl| hl.start > current)
+                        .next_back()
+                        && (jump_to.is_none() || jump_to.is_some_and(|n| m.start > n))
+                    {
+                        jump_to = Some(m.start);
                     }
                 }
                 if let Some(jump_to) = jump_to {
@@ -213,7 +221,7 @@ impl EventHandler for HexViewTab {
                         }
                     }
                 }
-                match usize::from_str_radix(item, 10) {
+                match item.parse() {
                     Ok(i) => {
                         self.state.set_selected(Some(i));
                     }
@@ -227,7 +235,7 @@ impl EventHandler for HexViewTab {
             }
             _ => {}
         }
-        return Ok(None);
+        Ok(None)
     }
 }
 
@@ -236,7 +244,7 @@ impl TabState for HexViewTab {
         self.file
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or(format!("Hex"))
+            .unwrap_or("Hex".to_string())
     }
 
     fn render(&mut self, area: Rect, buf: &mut Buffer) {
@@ -421,7 +429,7 @@ impl HexViewMode {
                 //         ^^ divider
                 //           ^^^ a byte and its left padding space take 3 characters
                 //                                   ^^ divider every 8 bytes
-                max_line_number.map(|ln| line_number_width(ln)).unwrap_or(8)
+                max_line_number.map(line_number_width).unwrap_or(8)
                     + 2
                     + 3 * bytes
                     + 2 * self.mid_dividers()
@@ -444,9 +452,9 @@ impl HexViewMode {
         let available_width = area.width;
 
         if (Self::FullHexWithAscii.required_width(max_ln) as u16) < available_width {
-            return Self::FullHexWithAscii;
+            Self::FullHexWithAscii
         } else if (Self::FullHex.required_width(max_ln) as u16) < available_width {
-            return Self::FullHex;
+            Self::FullHex
         } else {
             for i in 1..=16 {
                 let len = 16 - i;
@@ -454,7 +462,7 @@ impl HexViewMode {
                     return Self::Partial(len);
                 }
             }
-            return Self::BufferTooSmall;
+            Self::BufferTooSmall
         }
     }
 
@@ -468,10 +476,7 @@ impl HexViewMode {
     }
 
     pub fn has_ascii_section(&self) -> bool {
-        match self {
-            HexViewMode::FullHexWithAscii => true,
-            _ => false,
-        }
+        matches!(self, HexViewMode::FullHexWithAscii)
     }
 
     pub fn mid_dividers(&self) -> usize {
@@ -655,11 +660,7 @@ impl<'buf, 'blk, 'hl> HexView<'buf, 'blk, 'hl> {
         let mut position = Position::new(area.x, area.y);
         for i in 0..bytes_in_line {
             let byte_to_print = self.buf[line_start + i];
-            let mut style = if let Some(hl) = self.is_hl(line_start + i) {
-                hl
-            } else {
-                Style::default()
-            };
+            let mut style = self.is_hl(line_start + i).unwrap_or_default();
             if selected.is_some_and(|sel| sel == line_start + i) {
                 style = style.reversed();
             }
@@ -952,7 +953,7 @@ impl<'a> Popup for HexSearchHelper<'a> {
                 }
             }
         }
-        return None;
+        None
     }
 
     fn render(&mut self, frame: &mut ratatui::prelude::Frame) {
@@ -969,7 +970,7 @@ impl<'a> Popup for HexSearchHelper<'a> {
         let list_items = self
             .current_displayed_items()
             .into_iter()
-            .map(|m| Into::<&str>::into(m));
+            .map(Into::<&str>::into);
         match &mut self.state {
             HexHelperState::SelectMode(text_area, _, list_state) => {
                 text_area.render(selector_area, buf);
@@ -1004,14 +1005,14 @@ fn num_to_hex_chars(n: u8) -> (char, char) {
     let hh = n >> 4;
     let lh = n & 0xF;
     let hh_char = if hh >= 0xA {
-        ('A' as u8) - 0xA + hh
+        b'A' - 0xA + hh
     } else {
-        ('0' as u8) + hh
+        b'0' + hh
     } as char;
     let lh_char = if lh >= 0xA {
-        ('A' as u8) - 0xA + lh
+        b'A' - 0xA + lh
     } else {
-        ('0' as u8) + lh
+        b'0' + lh
     } as char;
 
     (hh_char, lh_char)

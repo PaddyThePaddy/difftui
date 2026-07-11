@@ -297,8 +297,8 @@ impl TextCmpView {
         Ok(Self {
             title: Self::build_title(lhs_path.as_path(), rhs_path.as_path())
                 .unwrap_or(String::from("Text")),
-            lhs_path: lhs_path,
-            rhs_path: rhs_path,
+            lhs_path,
+            rhs_path,
             selected: 0,
             horzontal_scroll: 0,
             page_height: None,
@@ -368,8 +368,8 @@ impl TextCmpView {
                 } else {
                     title = Some(format!(
                         "{}<=>{}/{}",
-                        lhs_parent.map(|s| s.to_str()).flatten().unwrap_or("\"\""),
-                        rhs_parent.map(|s| s.to_str()).flatten().unwrap_or("\"\""),
+                        lhs_parent.and_then(|s| s.to_str()).unwrap_or("\"\""),
+                        rhs_parent.and_then(|s| s.to_str()).unwrap_or("\"\""),
                         lhs_base
                     ));
                 }
@@ -588,7 +588,7 @@ impl EventHandler for TextCmpView {
                     "Open parent folder in folder cmp view" => {
                         if let Some((lhs, rhs)) = self.lhs_path.parent().zip(self.rhs_path.parent())
                         {
-                            let config = self.config.clone().into();
+                            let config = self.config.clone();
                             return Ok(Some(Action::CreateTabAndSwitch(Box::new(
                                 FolderCmpState::new(lhs, rhs, &config)?,
                             ))));
@@ -617,7 +617,7 @@ impl EventHandler for TextCmpView {
                         }
                     }
                 }
-                match usize::from_str_radix(item, 10) {
+                match item.parse() {
                     Ok(i) => {
                         self.selected = i;
                     }

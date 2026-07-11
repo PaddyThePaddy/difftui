@@ -27,7 +27,7 @@ pub fn compare_file<LP: AsRef<Path>, RP: AsRef<Path>>(
             if e.kind() == std::io::ErrorKind::NotFound {
                 return Ok(DiffState::Orphan(DiffSide::Right));
             } else {
-                return Err(e.into());
+                return Err(e);
             }
         }
     };
@@ -37,7 +37,7 @@ pub fn compare_file<LP: AsRef<Path>, RP: AsRef<Path>>(
             if e.kind() == std::io::ErrorKind::NotFound {
                 return Ok(DiffState::Orphan(DiffSide::Left));
             } else {
-                return Err(e.into());
+                return Err(e);
             }
         }
     };

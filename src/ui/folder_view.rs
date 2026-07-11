@@ -33,7 +33,7 @@ pub struct FolderViewState {
     highlight: Option<Regex>,
 }
 
-static NORMAL_LIST_STYLE: LazyLock<Style> = LazyLock::new(|| Style::default());
+static NORMAL_LIST_STYLE: LazyLock<Style> = LazyLock::new(Style::default);
 static DIFF_LIST_STYLE: LazyLock<Style> = LazyLock::new(|| Style::default().fg(Color::Red));
 static ORPHAN_LIST_STYLE: LazyLock<Style> = LazyLock::new(|| Style::default().fg(Color::Yellow));
 static SAME_LIST_STYLE: LazyLock<Style> = LazyLock::new(|| Style::default().fg(Color::Green));
@@ -381,7 +381,7 @@ impl<'a> FolderView<'a> {
         }
 
         if ds.is_orphan(side.oppsite()) {
-            list.push(ListItem::new("").style(ORPHAN_LIST_STYLE.clone()));
+            list.push(ListItem::new("").style(*ORPHAN_LIST_STYLE));
         } else {
             if root.metadata().is_dir() {
                 if self.expanded_pathes.contains(root_path) {
@@ -420,10 +420,10 @@ impl<'a> FolderView<'a> {
                 ListItem::from(item_str[scroll_point..].to_string())
             }
             .style(match ds {
-                DiffState::Unknown => NORMAL_LIST_STYLE.clone(),
-                DiffState::Orphan(_) => ORPHAN_LIST_STYLE.clone(),
-                DiffState::Different => DIFF_LIST_STYLE.clone(),
-                DiffState::Same => SAME_LIST_STYLE.clone(),
+                DiffState::Unknown => *NORMAL_LIST_STYLE,
+                DiffState::Orphan(_) => *ORPHAN_LIST_STYLE,
+                DiffState::Different => *DIFF_LIST_STYLE,
+                DiffState::Same => *SAME_LIST_STYLE,
             });
 
             list.push(list_item);
