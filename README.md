@@ -4,6 +4,8 @@ BeyondCompare/meld alternative in tui
 
 ![demo](assets/demo.gif)
 
+![demo](assets/text_cmp.gif)
+
 ## Installation
 
 ```bash
@@ -19,8 +21,8 @@ cargo install https://github.com/PaddyThePaddy/difftui --locked
 | `c`               | Compare selected file/folder             |
 | `o`               | Open selected filde / folder             |
 | `o`               | Open selected filde / folder with option |
-| `g`               | Move to top                              |
-| `G`               | Move to bottom                           |
+| `gg`               | Move to top                              |
+| `gG`               | Move to bottom                           |
 | `f`               | Filter files                             |
 | `z`               | Tab specific actions                     |
 | `R`               | Reload tab                               |
