@@ -19,9 +19,7 @@ use regex::bytes::Regex;
 use tracing::{error, trace};
 
 use crate::{
-    DiffTuiError,
-    diff::{DiffSide, DiffState, dir::DirDiffTree},
-    ui::{
+    DiffTuiConfig, DiffTuiError, diff::{DiffSide, DiffState, dir::{DirDiffTree, WalkConfig}}, ui::{
         Action, EventHandler, GotoMenu, JumpToPopup, Notification, Popup, TabState,
         folder_view::{FolderView, FolderViewState},
         hex_cmp_view::HexCmpView,
@@ -29,7 +27,7 @@ use crate::{
         menu::Menu,
         text_cmp_view::TextCmpView,
         tui,
-    },
+    }
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -57,17 +55,19 @@ pub struct FolderCmpState {
     filtered_tree: Option<Arc<DirDiffTree>>,
     page_height: Option<u16>,
     highlight: Option<Regex>,
+    config: DiffTuiConfig,
 }
 
 impl FolderCmpState {
-    pub fn new(lhs: impl AsRef<Path>, rhs: impl AsRef<Path>) -> Result<Self, DiffTuiError> {
+    pub fn new(lhs: impl AsRef<Path>, rhs: impl AsRef<Path>, config: &DiffTuiConfig) -> Result<Self, DiffTuiError> {
         let lhs = lhs.as_ref();
         let rhs = rhs.as_ref();
 
         let tree_loading_handle = {
             let lhs = lhs.to_path_buf();
             let rhs = rhs.to_path_buf();
-            std::thread::spawn(|| DirDiffTree::new(lhs, rhs))
+            let walk_config = config.clone().into();
+            std::thread::spawn(move || DirDiffTree::new(lhs, rhs, &walk_config))
         };
         let tree = Arc::new(DirDiffTree::new_empty());
         let lhs_state = FolderViewState::new(
@@ -100,6 +100,7 @@ impl FolderCmpState {
             filtered_tree: None,
             page_height: None,
             highlight: None,
+            config: config.clone()
         })
     }
 
@@ -281,8 +282,9 @@ impl EventHandler for FolderCmpState {
                     {
                         let lhs = self.lhs_path.join(lhs);
                         let rhs = self.rhs_path.join(rhs);
+                        let config = self.config.clone().into();
                         return Ok(Some(Action::CreateTabAndSwitch(Box::new(
-                            FolderCmpState::new(lhs, rhs)?,
+                            FolderCmpState::new(lhs, rhs, &config)?,
                         ))));
                     }
                 }
@@ -295,7 +297,7 @@ impl EventHandler for FolderCmpState {
                         let lhs = self.lhs_path.join(lhs);
                         let rhs = self.rhs_path.join(rhs);
                         return Ok(Some(Action::CreateTabAndSwitch(Box::new(
-                            TextCmpView::new(lhs, rhs)?,
+                            TextCmpView::new(lhs, rhs, &self.config)?,
                         ))));
                     }
                 }
@@ -308,7 +310,7 @@ impl EventHandler for FolderCmpState {
                         let lhs = self.lhs_path.join(lhs);
                         let rhs = self.rhs_path.join(rhs);
                         return Ok(Some(Action::CreateTabAndSwitch(Box::new(HexCmpView::new(
-                            lhs, rhs,
+                            lhs, rhs, &self.config
                         )?))));
                     }
                 }
@@ -361,8 +363,9 @@ impl EventHandler for FolderCmpState {
                     "Open parent folder in folder cmp view" => {
                         if let Some((lhs, rhs)) = self.lhs_path.parent().zip(self.rhs_path.parent())
                         {
+                            let config = self.config.clone().into();
                             return Ok(Some(Action::CreateTabAndSwitch(Box::new(
-                                FolderCmpState::new(lhs, rhs)?,
+                                FolderCmpState::new(lhs, rhs, &config)?,
                             ))));
                         }
                     }
@@ -407,13 +410,14 @@ impl EventHandler for FolderCmpState {
                 {
                     let lhs_path = self.lhs_path.join(lhs);
                     let rhs_path = self.rhs_path.join(rhs);
+                    let config = self.config.clone().into();
                     if lhs_path.is_dir() && rhs_path.is_dir() {
                         return Ok(Some(Action::CreateTabAndSwitch(Box::new(
-                            FolderCmpState::new(lhs_path, rhs_path)?,
+                            FolderCmpState::new(lhs_path, rhs_path, &config)?,
                         ))));
                     } else {
                         return Ok(Some(Action::CreateTabAndSwitch(Box::new(
-                            TextCmpView::new(lhs_path, rhs_path)?,
+                            TextCmpView::new(lhs_path, rhs_path, &self.config)?,
                         ))));
                     }
                 }
@@ -771,9 +775,11 @@ impl TabState for FolderCmpState {
     }
 
     fn reload(&mut self) -> Result<Option<Box<dyn TabState>>, DiffTuiError> {
+        let config = self.config.clone().into();
         Ok(Some(Box::new(FolderCmpState::new(
             self.lhs_path.as_path(),
             self.rhs_path.as_path(),
+            &config
         )?)))
     }
 }
@@ -923,7 +929,8 @@ mod tests {
 
     fn fixture_state() -> FolderCmpState {
         let base = PathBuf::from("test/folder_cmp/same");
-        FolderCmpState::new(base.join("lhs"), base.join("rhs")).unwrap()
+        let config = DiffTuiConfig::default();
+        FolderCmpState::new(base.join("lhs"), base.join("rhs"), &config).unwrap()
     }
 
     #[test]

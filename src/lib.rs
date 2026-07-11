@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 pub mod diff;
 pub mod ui;
 
@@ -24,3 +26,11 @@ impl<T> From<crossbeam::channel::SendError<T>> for DiffTuiError {
         Self::CrossbeamChannelSend
     }
 }
+
+#[derive(Debug, Clone, Default)]
+pub struct DiffTuiConfig{
+    pub no_ignore: bool,
+    pub hidden: bool,
+    pub additional_ignore: Vec<PathBuf>,
+}
+

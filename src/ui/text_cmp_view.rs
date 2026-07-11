@@ -15,12 +15,10 @@ use similar::{DiffOp, DiffTag, TextDiff};
 use tracing::error;
 
 use crate::{
-    DiffTuiError,
-    diff::DiffSide,
-    ui::{
+    DiffTuiConfig, DiffTuiError, diff::DiffSide, ui::{
         Action, EventHandler, GotoMenu, JumpToPopup, Notification, TabState,
         folder_cmp_view::FolderCmpState, hex_cmp_view::HexCmpView, menu::Menu,
-    },
+    }
 };
 
 fn find_diff_op(ops: &[DiffOp], index: usize, side: DiffSide) -> Result<DiffOp, DiffTuiError> {
@@ -153,6 +151,7 @@ pub struct TextCmpView {
     diff_hunks: Vec<(usize, usize)>,
     lhs_line_map: Vec<Option<usize>>,
     rhs_line_map: Vec<Option<usize>>,
+    config: DiffTuiConfig,
 }
 
 impl Debug for TextCmpView {
@@ -165,12 +164,12 @@ impl Debug for TextCmpView {
 }
 
 impl TextCmpView {
-    pub fn new(lhs: PathBuf, rhs: PathBuf) -> Result<Self, DiffTuiError> {
+    pub fn new(lhs: PathBuf, rhs: PathBuf, config: &DiffTuiConfig) -> Result<Self, DiffTuiError> {
         let lhs_content = std::fs::read(lhs.as_path())?;
         let lhs_content = String::from_utf8_lossy(&lhs_content).to_string();
         let rhs_content = std::fs::read(rhs.as_path())?;
         let rhs_content = String::from_utf8_lossy(&rhs_content).to_string();
-        Self::new_from_str(lhs_content, lhs, rhs_content, rhs)
+        Self::new_from_str(lhs_content, lhs, rhs_content, rhs, config)
     }
 
     pub fn new_from_str(
@@ -178,6 +177,7 @@ impl TextCmpView {
         lhs_path: PathBuf,
         rhs: String,
         rhs_path: PathBuf,
+        config: &DiffTuiConfig,
     ) -> Result<Self, DiffTuiError> {
         let lhs_content = lhs.clone();
         let rhs_content = rhs.clone();
@@ -310,6 +310,7 @@ impl TextCmpView {
             diff_hunks,
             lhs_line_map,
             rhs_line_map,
+            config: config.clone()
         })
     }
 
@@ -579,13 +580,15 @@ impl EventHandler for TextCmpView {
                         return Ok(Some(Action::CreateTabAndSwitch(Box::new(HexCmpView::new(
                             self.lhs_path.clone(),
                             self.rhs_path.clone(),
+                            &self.config
                         )?))));
                     }
                     "Open parent folder in folder cmp view" => {
                         if let Some((lhs, rhs)) = self.lhs_path.parent().zip(self.rhs_path.parent())
                         {
+                            let config = self.config.clone().into();
                             return Ok(Some(Action::CreateTabAndSwitch(Box::new(
-                                FolderCmpState::new(lhs, rhs)?,
+                                FolderCmpState::new(lhs, rhs, &config)?,
                             ))));
                         }
                     }
@@ -766,6 +769,7 @@ impl TabState for TextCmpView {
         Ok(Some(Box::new(TextCmpView::new(
             self.lhs_path.clone(),
             self.rhs_path.clone(),
+            &self.config
         )?)))
     }
 }

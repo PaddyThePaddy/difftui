@@ -10,11 +10,28 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator as _};
 use tracing::{error, trace};
 
 use crate::{
-    DiffTuiError,
+    DiffTuiConfig, DiffTuiError,
     diff::{DiffSide, DiffState, file::compare_file},
 };
 
 const CHANNEL_CAPACITY: usize = 100;
+
+#[derive(Debug, Default, Clone)]
+pub struct WalkConfig {
+    pub no_ignore: bool,
+    pub hidden: bool,
+    pub additional_ignore: Vec<PathBuf>,
+}
+
+impl From<DiffTuiConfig> for WalkConfig {
+    fn from(value: DiffTuiConfig) -> Self {
+        Self {
+            no_ignore: value.no_ignore,
+            hidden: value.hidden,
+            additional_ignore: value.additional_ignore,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct DirDiffTree {
@@ -41,7 +58,11 @@ impl DirDiffTree {
         }
     }
 
-    pub fn new(lhs: impl Into<PathBuf>, rhs: impl Into<PathBuf>) -> Result<Self, DiffTuiError> {
+    pub fn new(
+        lhs: impl Into<PathBuf>,
+        rhs: impl Into<PathBuf>,
+        config: &WalkConfig,
+    ) -> Result<Self, DiffTuiError> {
         let lhs = lhs.into();
         let rhs = rhs.into();
         let (tx, rx) = bounded(CHANNEL_CAPACITY);
@@ -52,15 +73,17 @@ impl DirDiffTree {
         let lhs_handle = {
             let tx = tx.clone();
             let cwd = lhs.clone();
+            let config = config.clone();
             std::thread::spawn(move || {
-                walk_tree(cwd, tx, DiffSide::Left);
+                walk_tree(cwd, &config, tx, DiffSide::Left);
             })
         };
 
         let rhs_handle = {
+            let config = config.clone();
             let cwd = rhs.clone();
             std::thread::spawn(move || {
-                walk_tree(cwd, tx, DiffSide::Right);
+                walk_tree(cwd, &config, tx, DiffSide::Right);
             })
         };
         trace!("Tree walkers started");
@@ -295,9 +318,24 @@ impl TreeNode {
 ///
 /// Errors from individual entries are logged and skipped; channel send errors
 /// are also logged (they indicate the receiver has been dropped early).
-fn walk_tree(cwd: PathBuf, sender: Sender<(PathBuf, std::fs::Metadata, DiffSide)>, side: DiffSide) {
+fn walk_tree(
+    cwd: PathBuf,
+    config: &WalkConfig,
+    sender: Sender<(PathBuf, std::fs::Metadata, DiffSide)>,
+    side: DiffSide,
+) {
     trace!("Tree walker started");
-    let par_walker = ignore::WalkBuilder::new(cwd.as_path()).build_parallel();
+    let mut ignore_builder = ignore::WalkBuilder::new(cwd.as_path());
+    ignore_builder.ignore(!config.no_ignore);
+    ignore_builder.git_ignore(!config.no_ignore);
+    ignore_builder.git_global(!config.no_ignore);
+    ignore_builder.git_exclude(!config.no_ignore);
+    ignore_builder.hidden(!config.hidden);
+    for ignore in config.additional_ignore.iter() {
+        ignore_builder.add_ignore(ignore);
+    }
+
+    let par_walker = ignore_builder.build_parallel();
     par_walker.run(|| {
         Box::new(|entry| {
             match entry {
@@ -370,7 +408,8 @@ mod test {
         let base = PathBuf::from(format!("test/folder_cmp/{scenario}"));
         let lhs = base.join("lhs");
         let rhs = base.join("rhs");
-        let tree = DirDiffTree::new(lhs, rhs).unwrap();
+        let tree = DirDiffTree::new(lhs, rhs, &WalkConfig::default()).unwrap();
+
         tree.cmp_node(Path::new("")).unwrap();
         tree.diff_map().lock().unwrap().clone()
     }

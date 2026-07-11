@@ -449,7 +449,9 @@ impl<'a> FolderView<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::diff::dir::WalkConfig;
+
+use super::*;
     use ratatui::{
         Terminal, TerminalOptions, Viewport, buffer::Buffer, layout::Rect, widgets::StatefulWidget,
     };
@@ -528,7 +530,7 @@ mod tests {
     #[test]
     fn render_with_real_tree_populates_items() {
         let base = PathBuf::from("test/folder_cmp/same");
-        let tree = Arc::new(DirDiffTree::new(base.join("lhs"), base.join("rhs")).unwrap());
+        let tree = Arc::new(DirDiffTree::new(base.join("lhs"), base.join("rhs"), &WalkConfig::default()).unwrap());
         let mut state = FolderViewState::new(DiffSide::Left, tree, ListState::default());
         let area = Rect::new(0, 0, 80, 24);
         let mut buf = Buffer::empty(area);
@@ -539,7 +541,7 @@ mod tests {
     #[test]
     fn render_expanded_dir_shows_more_items() {
         let base = PathBuf::from("test/folder_cmp/same");
-        let tree = Arc::new(DirDiffTree::new(base.join("lhs"), base.join("rhs")).unwrap());
+        let tree = Arc::new(DirDiffTree::new(base.join("lhs"), base.join("rhs"), &WalkConfig::default()).unwrap());
         let mut state = FolderViewState::new(DiffSide::Left, tree, ListState::default());
         let area = Rect::new(0, 0, 80, 24);
 

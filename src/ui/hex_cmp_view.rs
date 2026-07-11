@@ -10,14 +10,13 @@ use ratatui::{
 use regex::bytes::Regex;
 
 use crate::{
-    DiffTuiError,
-    ui::{
+    DiffTuiConfig, DiffTuiError, ui::{
         EventHandler, GotoMenu, JumpToPopup, Notification, TabState,
         folder_cmp_view::FolderCmpState,
         hex_view::{HexSearchHelper, HexView, HexViewState, HighlightGroup, get_search_hl},
         menu::Menu,
         text_cmp_view::TextCmpView,
-    },
+    }
 };
 
 use super::Action;
@@ -37,10 +36,11 @@ pub struct HexCmpView {
     rhs_search_hl: Vec<HighlightGroup>,
     lhs_cached_hl: Option<Vec<HighlightGroup>>,
     rhs_cached_hl: Option<Vec<HighlightGroup>>,
+    config: DiffTuiConfig,
 }
 
 impl HexCmpView {
-    pub fn new(lhs: PathBuf, rhs: PathBuf) -> Result<Self, DiffTuiError> {
+    pub fn new(lhs: PathBuf, rhs: PathBuf, config: &DiffTuiConfig) -> Result<Self, DiffTuiError> {
         let lhs_buf = std::fs::read(&lhs)?;
         let rhs_buf = std::fs::read(&rhs)?;
 
@@ -60,6 +60,7 @@ impl HexCmpView {
             rhs_search_hl: vec![],
             lhs_cached_hl: None,
             rhs_cached_hl: None,
+            config: config.clone(),
         })
     }
 }
@@ -275,7 +276,7 @@ impl EventHandler for HexCmpView {
                 match item.as_str() {
                     "Reopen with text cmp view" => {
                         return Ok(Some(Action::CreateTabAndSwitch(Box::new(
-                            TextCmpView::new(self.lhs_path.clone(), self.rhs_path.clone())?,
+                            TextCmpView::new(self.lhs_path.clone(), self.rhs_path.clone(), &self.config)?,
                         ))));
                     }
                     "Hex search helper" => {
@@ -287,7 +288,7 @@ impl EventHandler for HexCmpView {
                         if let Some((lhs, rhs)) = self.lhs_path.parent().zip(self.rhs_path.parent())
                         {
                             return Ok(Some(Action::CreateTabAndSwitch(Box::new(
-                                FolderCmpState::new(lhs, rhs)?,
+                                FolderCmpState::new(lhs, rhs, &self.config)?,
                             ))));
                         }
                     }
@@ -384,6 +385,7 @@ impl TabState for HexCmpView {
         Ok(Some(Box::new(HexCmpView::new(
             self.lhs_path.clone(),
             self.rhs_path.clone(),
+            &self.config
         )?)))
     }
 }

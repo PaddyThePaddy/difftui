@@ -11,11 +11,10 @@ pub mod tui;
 use std::{io::stdout, path::PathBuf, time::Duration};
 
 use crate::{
-    DiffTuiError,
-    ui::{
+    DiffTuiConfig, DiffTuiError, ui::{
         app::App, folder_cmp_view::FolderCmpState, hex_cmp_view::HexCmpView, hex_view::HexViewTab,
         menu::Menu, text_cmp_view::TextCmpView, tui::pause_event_stream,
-    },
+    }
 };
 use crossterm::event::KeyEvent;
 use ratatui::{
@@ -257,7 +256,7 @@ pub enum OpenWith {
     TextView,
 }
 
-pub fn start_tui(lhs: PathBuf, rhs: PathBuf, open_with: OpenWith) -> Result<(), DiffTuiError> {
+pub fn start_tui(lhs: PathBuf, rhs: PathBuf, open_with: OpenWith, config: &DiffTuiConfig) -> Result<(), DiffTuiError> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_time()
         .build()
@@ -265,12 +264,12 @@ pub fn start_tui(lhs: PathBuf, rhs: PathBuf, open_with: OpenWith) -> Result<(), 
     rt.block_on(async move {
         let first_tab: Box<dyn TabState> = if lhs.metadata()?.is_file() {
             match open_with {
-                OpenWith::HexCmpView => Box::new(HexCmpView::new(lhs, rhs)?),
+                OpenWith::HexCmpView => Box::new(HexCmpView::new(lhs, rhs, config)?),
                 OpenWith::HexView => Box::new(HexViewTab::new(lhs)?),
-                _ => Box::new(TextCmpView::new(lhs, rhs)?),
+                _ => Box::new(TextCmpView::new(lhs, rhs, config)?),
             }
         } else {
-            Box::new(FolderCmpState::new(lhs, rhs)?)
+            Box::new(FolderCmpState::new(lhs, rhs, config)?)
         };
         let mut app = App::new(first_tab);
 

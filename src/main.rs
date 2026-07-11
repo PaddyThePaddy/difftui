@@ -1,4 +1,5 @@
 use clap::{ArgAction, Parser};
+use difftui::DiffTuiConfig;
 use difftui::ui::{OpenWith, start_tui};
 use std::fs::File;
 use std::path::PathBuf;
@@ -15,6 +16,12 @@ struct Cli {
     hex: u8,
     #[arg(short, long)]
     verbose: bool,
+    #[arg(long)]
+    no_ignore: bool,
+    #[arg(long)]
+    hidden: bool,
+    #[arg(long, action=ArgAction::Append)]
+    additional_ignore: Vec<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -36,6 +43,11 @@ fn main() -> anyhow::Result<()> {
             OpenWith::HexCmpView
         } else {
             OpenWith::default()
+        },
+        &DiffTuiConfig {
+            no_ignore: args.no_ignore,
+            additional_ignore: args.additional_ignore,
+            hidden: args.hidden,
         },
     )?)
 }
