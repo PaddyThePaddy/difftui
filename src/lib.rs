@@ -30,6 +30,7 @@ impl<T> From<crossbeam::channel::SendError<T>> for DiffTuiError {
 #[derive(Debug, Clone, Default)]
 pub struct DiffTuiConfig {
     pub no_ignore: bool,
+    pub no_git_ignore: bool,
     pub hidden: bool,
     pub additional_ignore: Vec<PathBuf>,
 }

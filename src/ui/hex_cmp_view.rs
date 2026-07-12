@@ -291,7 +291,7 @@ impl EventHandler for HexCmpView {
                         if let Some((lhs, rhs)) = self.lhs_path.parent().zip(self.rhs_path.parent())
                         {
                             return Ok(Some(Action::CreateTabAndSwitch(Box::new(
-                                FolderCmpState::new(lhs, rhs, &self.config)?,
+                                FolderCmpState::new(lhs, rhs, &self.config, None, None)?,
                             ))));
                         }
                     }

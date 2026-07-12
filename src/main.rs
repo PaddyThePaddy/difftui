@@ -19,6 +19,8 @@ struct Cli {
     #[arg(long)]
     no_ignore: bool,
     #[arg(long)]
+    no_git_ignore: bool,
+    #[arg(long)]
     hidden: bool,
     #[arg(long, action=ArgAction::Append)]
     additional_ignore: Vec<PathBuf>,
@@ -46,6 +48,7 @@ fn main() -> anyhow::Result<()> {
         },
         &DiffTuiConfig {
             no_ignore: args.no_ignore,
+            no_git_ignore: args.no_git_ignore,
             additional_ignore: args.additional_ignore,
             hidden: args.hidden,
         },

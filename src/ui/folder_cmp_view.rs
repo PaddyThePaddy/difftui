@@ -12,7 +12,9 @@ use ratatui::{
     Frame,
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect, Spacing},
-    widgets::{Block, ListState, StatefulWidget, Widget as _},
+    style::{Color, Style},
+    text::{Span, Text},
+    widgets::{Block, Clear, ListState, Paragraph, StatefulWidget, Widget as _},
 };
 use ratatui_textarea::{CursorMove, TextArea};
 use regex::bytes::Regex;
@@ -51,8 +53,10 @@ pub struct FolderCmpState {
     cmp_in_progress: Option<JoinHandle<Result<(), DiffTuiError>>>,
     loading_tree: Option<JoinHandle<Result<DirDiffTree, DiffTuiError>>>,
     loading_msg_state: LoadingMsgState,
-    filter_text: Vec<String>,
-    filters: GlobSet,
+    include_filter_text: Vec<String>,
+    include_filters: GlobSet,
+    exclude_filter_text: Vec<String>,
+    exclude_filters: GlobSet,
     display_map: HashSet<PathBuf>,
     filtered_tree: Option<Arc<DirDiffTree>>,
     page_height: Option<u16>,
@@ -65,6 +69,8 @@ impl FolderCmpState {
         lhs: impl AsRef<Path>,
         rhs: impl AsRef<Path>,
         config: &DiffTuiConfig,
+        include_patterns: Option<Vec<String>>,
+        exclude_patterns: Option<Vec<String>>,
     ) -> Result<Self, DiffTuiError> {
         let lhs = lhs.as_ref();
         let rhs = rhs.as_ref();
@@ -86,7 +92,16 @@ impl FolderCmpState {
             tree.clone(),
             ListState::default().with_selected(Some(0)),
         );
-        let default_glob_set = GlobSetBuilder::new().build()?;
+        let mut default_include = GlobSetBuilder::new();
+        let include_patterns = include_patterns.unwrap_or(vec!["**".to_string()]);
+        for line in include_patterns.iter() {
+            default_include.add(Glob::new(line.as_str())?);
+        }
+        let mut default_exclude = GlobSetBuilder::new();
+        let exclude_patterns = exclude_patterns.unwrap_or_default();
+        for line in exclude_patterns.iter() {
+            default_exclude.add(Glob::new(line.as_str())?);
+        }
 
         Ok(Self {
             lhs_path: lhs.to_path_buf(),
@@ -100,8 +115,10 @@ impl FolderCmpState {
             cmp_in_progress: None,
             loading_tree: Some(tree_loading_handle),
             loading_msg_state: LoadingMsgState::default(),
-            filter_text: vec![],
-            filters: default_glob_set,
+            include_filter_text: include_patterns,
+            include_filters: default_include.build()?,
+            exclude_filter_text: exclude_patterns,
+            exclude_filters: default_exclude.build()?,
             display_map: HashSet::new(),
             filtered_tree: None,
             page_height: None,
@@ -110,14 +127,15 @@ impl FolderCmpState {
         })
     }
 
-    pub fn set_filters(&mut self, filters: GlobSet) {
-        if filters.is_empty() {
+    pub fn set_filters(&mut self, include: GlobSet, exclude: GlobSet) {
+        if include.is_empty() && exclude.is_empty() {
             self.display_map.clear();
             self.filtered_tree = None;
             self.lhs_state.set_tree(self.tree.clone());
             self.rhs_state.set_tree(self.tree.clone());
         } else {
-            self.filters = filters;
+            self.include_filters = include;
+            self.exclude_filters = exclude;
             self.display_map = self.build_display_map();
             let new_tree = Arc::new(self.tree.clone_filtered_tree(&self.display_map));
             self.lhs_state.set_tree(new_tree.clone());
@@ -129,13 +147,20 @@ impl FolderCmpState {
     fn build_display_map(&self) -> HashSet<PathBuf> {
         let mut map = HashSet::new();
         map.insert(PathBuf::from(""));
-        Self::build_display_map_worker(&self.tree, &self.filters, Path::new(""), &mut map);
+        Self::build_display_map_worker(
+            &self.tree,
+            &self.include_filters,
+            &self.exclude_filters,
+            Path::new(""),
+            &mut map,
+        );
         map
     }
 
     fn build_display_map_worker(
         tree: &DirDiffTree,
-        filters: &GlobSet,
+        include_filteres: &GlobSet,
+        exclude_filters: &GlobSet,
         p: &Path,
         map: &mut HashSet<PathBuf>,
     ) -> bool {
@@ -147,13 +172,19 @@ impl FolderCmpState {
 
         if node.metadata().is_dir() {
             for child in node.children() {
-                if Self::build_display_map_worker(tree, filters, child, map) {
+                if Self::build_display_map_worker(
+                    tree,
+                    include_filteres,
+                    exclude_filters,
+                    child,
+                    map,
+                ) {
                     should_display = true;
                 }
             }
         }
 
-        if filters.is_match(p) {
+        if include_filteres.is_match(p) && !exclude_filters.is_match(p) {
             should_display = true;
         }
 
@@ -227,15 +258,45 @@ impl EventHandler for FolderCmpState {
         match event {
             Action::PopupFilter => {
                 trace!("Request showing popup filter");
-                return Ok(Some(Action::ShowPopup(Box::new(FilterPopup::new(Some(
-                    self.filter_text.clone(),
-                ))))));
+                return Ok(Some(Action::ShowPopup(Box::new(FilterPopup::new(
+                    &FilterConfig {
+                        ignore: !self.config.no_ignore,
+                        git_ignore: !self.config.no_git_ignore,
+                        hidden: self.config.hidden,
+                        include_patterns: self.include_filter_text.clone(),
+                        exclude_patterns: self.exclude_filter_text.clone(),
+                    },
+                )))));
             }
             Action::PopupReturn(id, Some(body)) if id == FilterPopup::ID_FILTER_CONFIRMED => {
+                let returned_config = match serde_json::from_str::<FilterConfig>(body) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        return Ok(Some(Action::Notification(Notification {
+                            title: "Error".to_string(),
+                            body: format!("Deserialize filter config failed: {e}"),
+                        })));
+                    }
+                };
+                if returned_config.ignore == self.config.no_ignore
+                    || returned_config.git_ignore == self.config.no_git_ignore
+                    || returned_config.hidden != self.config.hidden
+                {
+                    self.config.no_ignore = !returned_config.ignore;
+                    self.config.no_git_ignore = !returned_config.git_ignore;
+                    self.config.hidden = returned_config.hidden;
+                    let tree_loading_handle = {
+                        let lhs = self.lhs_path.to_path_buf();
+                        let rhs = self.rhs_path.to_path_buf();
+                        let walk_config = self.config.clone().into();
+                        std::thread::spawn(move || DirDiffTree::new(lhs, rhs, &walk_config))
+                    };
+                    self.loading_tree = Some(tree_loading_handle);
+                    self.expanded_pathes.clear();
+                }
                 let mut glob_builder = GlobSetBuilder::new();
-                let lines: Vec<String> = body.lines().map(|s| s.to_string()).collect();
 
-                for line in lines.iter() {
+                for line in returned_config.include_patterns.iter() {
                     let line = line.trim();
                     if line.is_empty() {
                         continue;
@@ -251,7 +312,7 @@ impl EventHandler for FolderCmpState {
                     };
                     glob_builder.add(glob);
                 }
-                let filters = match glob_builder.build() {
+                let include_filters = match glob_builder.build() {
                     Ok(f) => f,
                     Err(e) => {
                         return Ok(Some(Action::Notification(Notification {
@@ -260,8 +321,37 @@ impl EventHandler for FolderCmpState {
                         })));
                     }
                 };
-                self.filter_text = lines;
-                self.set_filters(filters);
+
+                let mut glob_builder = GlobSetBuilder::new();
+                for line in returned_config.exclude_patterns.iter() {
+                    let line = line.trim();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    let glob = match Glob::new(line) {
+                        Ok(g) => g,
+                        Err(e) => {
+                            return Ok(Some(Action::Notification(Notification {
+                                title: "Error".to_string(),
+                                body: format!("Parsing glob failed: {e}"),
+                            })));
+                        }
+                    };
+                    glob_builder.add(glob);
+                }
+                let exclude_filters = match glob_builder.build() {
+                    Ok(f) => f,
+                    Err(e) => {
+                        return Ok(Some(Action::Notification(Notification {
+                            title: "Error".to_string(),
+                            body: format!("Build glob set failed: {e}"),
+                        })));
+                    }
+                };
+                self.include_filter_text = returned_config.include_patterns;
+                self.exclude_filter_text = returned_config.exclude_patterns;
+
+                self.set_filters(include_filters, exclude_filters);
             }
             Action::PopupReturn(id, Some(body)) if id == "Open" => {
                 match body.as_str() {
@@ -289,7 +379,13 @@ impl EventHandler for FolderCmpState {
                             let rhs = self.rhs_path.join(rhs);
                             let config = self.config.clone();
                             return Ok(Some(Action::CreateTabAndSwitch(Box::new(
-                                FolderCmpState::new(lhs, rhs, &config)?,
+                                FolderCmpState::new(
+                                    lhs,
+                                    rhs,
+                                    &config,
+                                    Some(self.include_filter_text.clone()),
+                                    Some(self.exclude_filter_text.clone()),
+                                )?,
                             ))));
                         }
                     }
@@ -371,7 +467,13 @@ impl EventHandler for FolderCmpState {
                         {
                             let config = self.config.clone();
                             return Ok(Some(Action::CreateTabAndSwitch(Box::new(
-                                FolderCmpState::new(lhs, rhs, &config)?,
+                                FolderCmpState::new(
+                                    lhs,
+                                    rhs,
+                                    &config,
+                                    Some(self.include_filter_text.clone()),
+                                    Some(self.exclude_filter_text.clone()),
+                                )?,
                             ))));
                         }
                     }
@@ -419,7 +521,13 @@ impl EventHandler for FolderCmpState {
                     let config = self.config.clone();
                     if lhs_path.is_dir() && rhs_path.is_dir() {
                         return Ok(Some(Action::CreateTabAndSwitch(Box::new(
-                            FolderCmpState::new(lhs_path, rhs_path, &config)?,
+                            FolderCmpState::new(
+                                lhs,
+                                rhs,
+                                &config,
+                                Some(self.include_filter_text.clone()),
+                                Some(self.exclude_filter_text.clone()),
+                            )?,
                         ))));
                     } else {
                         return Ok(Some(Action::CreateTabAndSwitch(Box::new(
@@ -786,6 +894,8 @@ impl TabState for FolderCmpState {
             self.lhs_path.as_path(),
             self.rhs_path.as_path(),
             &config,
+            Some(self.include_filter_text.clone()),
+            Some(self.exclude_filter_text.clone()),
         )?)))
     }
 }
@@ -847,17 +957,39 @@ impl FolderCmpView {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum FilterFocus {
+    #[default]
+    Include,
+    Exclude,
+    EditingInclude,
+    EditingExclude,
+}
+
+#[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize)]
+pub struct FilterConfig {
+    ignore: bool,
+    git_ignore: bool,
+    hidden: bool,
+    include_patterns: Vec<String>,
+    exclude_patterns: Vec<String>,
+}
+
+#[derive(Debug, Default)]
 pub struct FilterPopup<'ta> {
+    focus: FilterFocus,
+    config: FilterConfig,
     text: TextArea<'ta>,
 }
 
 impl<'ta> FilterPopup<'ta> {
     const ID_FILTER_CONFIRMED: &'static str = "filters_popup::confirmed";
     const ID_FILTER_CENCELED: &'static str = "filters_popup::canceled";
-    pub fn new(text: Option<Vec<String>>) -> Self {
+    pub fn new(current_config: &FilterConfig) -> Self {
         Self {
-            text: Self::build_filter_text_area(text),
+            text: Self::build_filter_text_area(None),
+            config: current_config.clone(),
+            ..Default::default()
         }
     }
 
@@ -871,7 +1003,9 @@ impl<'ta> FilterPopup<'ta> {
             Block::bordered()
                 .border_type(ratatui::widgets::BorderType::Rounded)
                 .title("Filters")
-                .title_bottom("<ESC> to cancel / <Ctrl-S> to confirm"),
+                .title_bottom(
+                    "<ESC> to cancel / <Ctrl-Enter> to create a new line / <Enter> to confirm",
+                ),
         );
         default_text_area
     }
@@ -879,30 +1013,86 @@ impl<'ta> FilterPopup<'ta> {
 
 impl<'ta> Popup for FilterPopup<'ta> {
     fn handler(&mut self, event: &crate::ui::tui::Event) -> Option<Action> {
-        if let tui::Event::Key(key_evt) = event {
-            if key_evt.modifiers == KeyModifiers::CONTROL && key_evt.code == KeyCode::Char('s') {
-                return Some(Action::PopupReturn(
-                    Self::ID_FILTER_CONFIRMED.to_string(),
-                    Some(self.text.lines().join("\n")),
-                ));
-            } else if key_evt.code == KeyCode::Esc {
-                return Some(Action::PopupReturn(
-                    Self::ID_FILTER_CENCELED.to_string(),
-                    Some(self.text.lines().join("\n")),
-                ));
-            } else if key_evt.code == KeyCode::Char('d')
-                && key_evt.modifiers == KeyModifiers::CONTROL
-            {
-                let mut lines = self.text.lines().to_vec();
-                let cursor = self.text.cursor();
-                lines.remove(cursor.0);
-                let mut new_area = Self::build_filter_text_area(Some(lines));
-                new_area.move_cursor(CursorMove::Jump(cursor.0 as u16, cursor.1 as u16));
-                self.text = new_area;
-            } else {
-                self.text.input(*key_evt);
+        match self.focus {
+            FilterFocus::Include | FilterFocus::Exclude => {
+                if let tui::Event::Key(key_evt) = event {
+                    if key_evt.code == KeyCode::Enter {
+                        return Some(Action::PopupReturn(
+                            Self::ID_FILTER_CONFIRMED.to_string(),
+                            Some(serde_json::to_string(&self.config).expect("Deserialize failed")),
+                        ));
+                    } else if key_evt.code == KeyCode::Esc || key_evt.code == KeyCode::Char('q') {
+                        return Some(Action::PopupReturn(
+                            Self::ID_FILTER_CENCELED.to_string(),
+                            Some(self.text.lines().join("\n")),
+                        ));
+                    } else if key_evt.code == KeyCode::Char('I') {
+                        self.config.ignore = !self.config.ignore;
+                    } else if key_evt.code == KeyCode::Char('g') {
+                        self.config.git_ignore = !self.config.git_ignore;
+                    } else if key_evt.code == KeyCode::Char('.') {
+                        self.config.hidden = !self.config.hidden;
+                    } else if key_evt.code == KeyCode::Left
+                        || key_evt.code == KeyCode::Char('h')
+                        || key_evt.code == KeyCode::Up
+                        || key_evt.code == KeyCode::Char('k')
+                    {
+                        self.focus = FilterFocus::Include;
+                    } else if key_evt.code == KeyCode::Right
+                        || key_evt.code == KeyCode::Char('l')
+                        || key_evt.code == KeyCode::Down
+                        || key_evt.code == KeyCode::Char('j')
+                    {
+                        self.focus = FilterFocus::Exclude;
+                    } else if key_evt.code == KeyCode::Char('i') {
+                        if self.focus == FilterFocus::Include {
+                            self.focus = FilterFocus::EditingInclude;
+                            self.text = Self::build_filter_text_area(Some(
+                                self.config.include_patterns.clone(),
+                            ));
+                        } else if self.focus == FilterFocus::Exclude {
+                            self.focus = FilterFocus::EditingExclude;
+                            self.text = Self::build_filter_text_area(Some(
+                                self.config.exclude_patterns.clone(),
+                            ));
+                        }
+                    }
+                }
             }
-            return None;
+            FilterFocus::EditingInclude | FilterFocus::EditingExclude => {
+                if let tui::Event::Key(key_evt) = event {
+                    if key_evt.code == KeyCode::Char('d')
+                        && key_evt.modifiers == KeyModifiers::CONTROL
+                    {
+                        let mut lines = self.text.lines().to_vec();
+                        let cursor = self.text.cursor();
+                        lines.remove(cursor.0);
+                        let mut new_area = Self::build_filter_text_area(Some(lines));
+                        new_area.move_cursor(CursorMove::Jump(cursor.0 as u16, cursor.1 as u16));
+                        self.text = new_area;
+                    } else if key_evt.code == KeyCode::Char('o')
+                        && key_evt.modifiers == KeyModifiers::CONTROL
+                    {
+                        let mut lines = self.text.lines().to_vec();
+                        let cursor = self.text.cursor();
+                        lines.insert(cursor.0, String::new());
+                        let mut new_area = Self::build_filter_text_area(Some(lines));
+                        new_area.move_cursor(CursorMove::Jump(cursor.0 as u16, cursor.1 as u16));
+                        self.text = new_area;
+                    } else if key_evt.code == KeyCode::Esc {
+                        let edited_lines = self.text.lines().to_vec();
+                        if self.focus == FilterFocus::EditingInclude {
+                            self.focus = FilterFocus::Include;
+                            self.config.include_patterns = edited_lines;
+                        } else if self.focus == FilterFocus::EditingExclude {
+                            self.focus = FilterFocus::Exclude;
+                            self.config.exclude_patterns = edited_lines;
+                        }
+                    } else {
+                        self.text.input(*key_evt);
+                    }
+                }
+            }
         }
         None
     }
@@ -910,10 +1100,125 @@ impl<'ta> Popup for FilterPopup<'ta> {
     fn render(&mut self, frame: &mut Frame) {
         let (area, buf) = self.prepare(
             frame,
-            Constraint::Percentage(50),
-            Constraint::Percentage(50),
+            Constraint::Percentage(80),
+            Constraint::Percentage(80),
         );
-        self.text.render(area, buf);
+        let popup_block = Block::bordered()
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .title("Filters")
+            .title_bottom("<ESC> to cancel / <i> edit filter patterns");
+        let popup_inner_area = popup_block.inner(area);
+        let full_wide = popup_inner_area.width > 50;
+        let popup_layout = Layout::new(
+            Direction::Vertical,
+            [
+                Constraint::Length(if full_wide { 2 } else { 3 }),
+                Constraint::Fill(1),
+            ],
+        );
+        let [flag_area, pattern_area] = popup_inner_area.layout(&popup_layout);
+
+        // rendering flags
+        let style_activated = Style::default().not_dim().blue();
+        let style_deactivated = Style::default().dim();
+        let ignore = Span::from("Ignore(I)").style(if self.config.ignore {
+            style_activated
+        } else {
+            style_deactivated
+        });
+        let git_ignore = Span::from("Git ignore(g)").style(if self.config.git_ignore {
+            style_activated
+        } else {
+            style_deactivated
+        });
+        let hidden = Span::from("Hidden(.)").style(if self.config.hidden {
+            style_activated
+        } else {
+            style_deactivated
+        });
+        if full_wide {
+            let [left_area, right_area] = flag_area.layout(&Layout::new(
+                Direction::Horizontal,
+                [Constraint::Percentage(50), Constraint::Percentage(50)],
+            ));
+            let [ignore_area, git_ignore_area] = left_area.layout(&Layout::new(
+                Direction::Vertical,
+                [Constraint::Length(1), Constraint::Length(1)],
+            ));
+            ignore.render(ignore_area, buf);
+            git_ignore.render(git_ignore_area, buf);
+            hidden.render(right_area, buf);
+        } else {
+            let [ignore_area, git_ignore_area, hidden_area] = flag_area.layout(&Layout::new(
+                Direction::Vertical,
+                [
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                ],
+            ));
+            ignore.render(ignore_area, buf);
+            git_ignore.render(git_ignore_area, buf);
+            hidden.render(hidden_area, buf);
+        }
+
+        // render pattern editing area
+        let include_block = Block::bordered()
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(if self.focus == FilterFocus::Include {
+                Color::Blue
+            } else if self.focus == FilterFocus::EditingInclude {
+                Color::Yellow
+            } else {
+                Color::default()
+            })
+            .title("Include");
+        let exclude_block = Block::bordered()
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(if self.focus == FilterFocus::Exclude {
+                Color::Blue
+            } else if self.focus == FilterFocus::EditingExclude {
+                Color::Yellow
+            } else {
+                Color::default()
+            })
+            .title("Exclude");
+        let mut editing_area: Option<Rect> = None;
+        let mut editing_block: Option<Block> = None;
+        let [include_area, exclude_area] = if full_wide {
+            pattern_area.layout(&Layout::new(
+                Direction::Horizontal,
+                [Constraint::Percentage(50), Constraint::Percentage(50)],
+            ))
+        } else {
+            pattern_area.layout(&Layout::new(
+                Direction::Vertical,
+                [Constraint::Percentage(50), Constraint::Percentage(50)],
+            ))
+        };
+        if self.focus == FilterFocus::EditingInclude {
+            editing_area = Some(include_area);
+            editing_block = Some(include_block.clone());
+        } else if self.focus == FilterFocus::EditingExclude {
+            editing_area = Some(exclude_area);
+            editing_block = Some(exclude_block.clone());
+        }
+        Paragraph::new(Text::raw(self.config.include_patterns.join("\n")))
+            .block(include_block)
+            .render(include_area, buf);
+
+        Paragraph::new(Text::raw(self.config.exclude_patterns.join("\n")))
+            .block(exclude_block)
+            .render(exclude_area, buf);
+
+        // render editing area
+        if let (Some(area), Some(block)) = (editing_area, editing_block) {
+            Clear.render(area, buf);
+            self.text.set_block(block);
+            self.text.render(area, buf);
+        }
+
+        popup_block.render(area, buf);
     }
 }
 
@@ -924,7 +1229,7 @@ mod tests {
     fn fixture_state() -> FolderCmpState {
         let base = PathBuf::from("test/folder_cmp/same");
         let config = DiffTuiConfig::default();
-        FolderCmpState::new(base.join("lhs"), base.join("rhs"), &config).unwrap()
+        FolderCmpState::new(base.join("lhs"), base.join("rhs"), &config, None, None).unwrap()
     }
 
     #[test]

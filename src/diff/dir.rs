@@ -19,6 +19,7 @@ const CHANNEL_CAPACITY: usize = 100;
 #[derive(Debug, Default, Clone)]
 pub struct WalkConfig {
     pub no_ignore: bool,
+    pub no_git_ignore: bool,
     pub hidden: bool,
     pub additional_ignore: Vec<PathBuf>,
 }
@@ -27,6 +28,7 @@ impl From<DiffTuiConfig> for WalkConfig {
     fn from(value: DiffTuiConfig) -> Self {
         Self {
             no_ignore: value.no_ignore,
+            no_git_ignore: value.no_git_ignore,
             hidden: value.hidden,
             additional_ignore: value.additional_ignore,
         }
@@ -322,9 +324,9 @@ fn walk_tree(
     trace!("Tree walker started");
     let mut ignore_builder = ignore::WalkBuilder::new(cwd.as_path());
     ignore_builder.ignore(!config.no_ignore);
-    ignore_builder.git_ignore(!config.no_ignore);
-    ignore_builder.git_global(!config.no_ignore);
-    ignore_builder.git_exclude(!config.no_ignore);
+    ignore_builder.git_ignore(!config.no_git_ignore);
+    ignore_builder.git_global(!config.no_git_ignore);
+    ignore_builder.git_exclude(!config.no_git_ignore);
     ignore_builder.hidden(!config.hidden);
     for ignore in config.additional_ignore.iter() {
         ignore_builder.add_ignore(ignore);

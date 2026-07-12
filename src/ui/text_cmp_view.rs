@@ -590,7 +590,7 @@ impl EventHandler for TextCmpView {
                         {
                             let config = self.config.clone();
                             return Ok(Some(Action::CreateTabAndSwitch(Box::new(
-                                FolderCmpState::new(lhs, rhs, &config)?,
+                                FolderCmpState::new(lhs, rhs, &config, None, None)?,
                             ))));
                         }
                     }

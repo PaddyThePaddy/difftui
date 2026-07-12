@@ -275,7 +275,7 @@ pub fn start_tui(
                 _ => Box::new(TextCmpView::new(lhs, rhs, config)?),
             }
         } else {
-            Box::new(FolderCmpState::new(lhs, rhs, config)?)
+            Box::new(FolderCmpState::new(lhs, rhs, config, None, None)?)
         };
         let mut app = App::new(first_tab);
 
