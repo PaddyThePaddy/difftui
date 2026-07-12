@@ -12,16 +12,22 @@ mod config;
 struct Cli {
     lhs: PathBuf,
     rhs: PathBuf,
+    /// Set -x to launch binary comparison mode. -xx to launch single hex view
+    /// (The second (rhs) path will be ignored)
     #[arg(short('x'), long, action=ArgAction::Count)]
     hex: u8,
     #[arg(short, long)]
     verbose: bool,
+    /// Disable .ignore files
     #[arg(long)]
     no_ignore: bool,
+    /// Disable .gitignore and global git ignores
     #[arg(long)]
     no_git_ignore: bool,
+    /// Include hidden files
     #[arg(long)]
     hidden: bool,
+    /// Additional ignore files follows git ignore format
     #[arg(long, action=ArgAction::Append)]
     additional_ignore: Vec<PathBuf>,
 }
@@ -35,6 +41,7 @@ fn main() -> anyhow::Result<()> {
             .with_ansi(false)
             .with_writer(Mutex::new(log_file))
             .init();
+        println!("Start logging to logs.txt")
     }
     Ok(start_tui(
         args.lhs,
