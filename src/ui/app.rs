@@ -109,7 +109,6 @@ impl App {
     }
 
     fn handle_event(&mut self, evt: tui::Event) -> Option<Action> {
-        error!("debug 2 evt: {:?}", evt);
         if let tui::Event::Key(key) = evt
             && let KeyCode::Char('c') = key.code
             && key.modifiers == KeyModifiers::CONTROL

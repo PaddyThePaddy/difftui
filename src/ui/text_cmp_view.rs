@@ -447,11 +447,6 @@ impl EventHandler for TextCmpView {
             Action::SearchNext(r) => {
                 self.highlight = Some(r.clone());
                 let mut idx = self.selected + 1;
-                error!(
-                    "debug ll.len() = {}, rl.len() = {}",
-                    self.lhs_line_map.len(),
-                    self.rhs_line_map.len()
-                );
                 while let Some((ll, rl)) =
                     self.lhs_line_map.get(idx).zip(self.rhs_line_map.get(idx))
                 {
@@ -463,17 +458,6 @@ impl EventHandler for TextCmpView {
                             .is_some_and(|line| r.is_match(line.as_bytes()))
                     {
                         self.selected = idx;
-                        error!(
-                            "debug1: match at {idx}, lhs: {:?}, rhs: {:?}",
-                            ll.map(|ll| {
-                                error!("debug1: ll = {ll}");
-                                self.lhs_lines[ll].as_str()
-                            }),
-                            rl.map(|rl| {
-                                error!("debug1: rl = {rl}");
-                                self.rhs_lines[rl].as_str()
-                            })
-                        );
                         self.fit_window();
                         return Ok(None);
                     }
@@ -497,11 +481,6 @@ impl EventHandler for TextCmpView {
                             .is_some_and(|line| r.is_match(line.as_bytes()))
                     {
                         self.selected = idx;
-                        error!(
-                            "debug2: match at {idx}, lhs: {:?}, rhs: {:?}",
-                            ll.map(|ll| self.lhs_lines[ll].as_str()),
-                            rl.map(|rl| self.rhs_lines[rl].as_str())
-                        );
                         self.fit_window();
                         return Ok(None);
                     }

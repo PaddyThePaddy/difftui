@@ -218,7 +218,6 @@ impl EventHandler for FolderViewState {
             }
             Action::SearchNext(r) => {
                 self.highlight = Some(r.clone());
-                error!("highligh= {:?}", self.highlight);
                 if let Some(current) = self.selection.selected() {
                     let mut idx = current + 1;
                     while let Some(p) = self.get_item_full_name(idx) {
