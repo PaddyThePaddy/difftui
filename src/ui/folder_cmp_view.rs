@@ -522,8 +522,8 @@ impl EventHandler for FolderCmpState {
                     if lhs_path.is_dir() && rhs_path.is_dir() {
                         return Ok(Some(Action::CreateTabAndSwitch(Box::new(
                             FolderCmpState::new(
-                                lhs,
-                                rhs,
+                                lhs_path,
+                                rhs_path,
                                 &config,
                                 Some(self.include_filter_text.clone()),
                                 Some(self.exclude_filter_text.clone()),
