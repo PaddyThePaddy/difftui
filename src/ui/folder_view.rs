@@ -14,7 +14,6 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, StatefulWidget, Widget},
 };
 use regex::bytes::Regex;
-use tracing::error;
 
 use crate::{
     diff::{DiffSide, DiffState, dir::DirDiffTree},

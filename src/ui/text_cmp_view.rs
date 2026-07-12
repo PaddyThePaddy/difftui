@@ -681,7 +681,9 @@ impl TabState for TextCmpView {
                 } else {
                     Color::default()
                 });
-                line.push_span(&self.lhs_lines[ln][self.horzontal_scroll..]);
+                line.push_span(
+                    &self.lhs_lines[ln][(self.horzontal_scroll.min(self.lhs_lines[ln].len()))..],
+                );
 
                 lhs_list.push(line);
             } else {
@@ -710,7 +712,9 @@ impl TabState for TextCmpView {
                 } else {
                     Color::default()
                 });
-                line.push_span(&self.rhs_lines[ln][self.horzontal_scroll..]);
+                line.push_span(
+                    &self.rhs_lines[ln][self.horzontal_scroll.min(self.rhs_lines[ln].len())..],
+                );
 
                 rhs_list.push(line);
             } else {
