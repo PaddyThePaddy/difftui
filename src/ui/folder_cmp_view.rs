@@ -1101,7 +1101,7 @@ impl<'ta> Popup for FilterPopup<'ta> {
         let popup_block = Block::bordered()
             .border_type(ratatui::widgets::BorderType::Rounded)
             .title("Filters")
-            .title_bottom("<ESC> to cancel / <i> edit filter patterns");
+            .title_bottom("<ESC> / <Enter> / <i> edit filter patterns");
         let popup_inner_area = popup_block.inner(area);
         let full_wide = popup_inner_area.width > 50;
         let popup_layout = Layout::new(
@@ -1209,7 +1209,8 @@ impl<'ta> Popup for FilterPopup<'ta> {
         // render editing area
         if let (Some(area), Some(block)) = (editing_area, editing_block) {
             Clear.render(area, buf);
-            self.text.set_block(block);
+            self.text
+                .set_block(block.title_bottom("<ESC> / <C-D> delete line / <C-O> insert new line"));
             self.text.render(area, buf);
         }
 
@@ -1231,6 +1232,7 @@ mod tests {
     fn new_starts_loading_tree_in_background() {
         let state = fixture_state();
         assert!(state.loading_tree.is_some());
+        t
     }
 
     #[test]
