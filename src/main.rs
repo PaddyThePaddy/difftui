@@ -9,6 +9,7 @@ use tracing::Level;
 mod config;
 
 #[derive(Debug, Clone, clap::Parser)]
+#[command(version=git_version::git_version!(cargo_prefix="cargo"))]
 struct Cli {
     lhs: PathBuf,
     rhs: PathBuf,
