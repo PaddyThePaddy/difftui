@@ -139,6 +139,7 @@ impl FolderViewState {
         self.tree = new_tree;
     }
 
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.items_full_name.len()
     }
@@ -356,6 +357,7 @@ impl<'a> FolderView<'a> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn generate_list_item(
         &self,
         tree: &DirDiffTree,
