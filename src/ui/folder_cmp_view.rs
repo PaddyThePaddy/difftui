@@ -127,21 +127,51 @@ impl FolderCmpState {
         })
     }
 
-    pub fn set_filters(&mut self, include: GlobSet, exclude: GlobSet) {
-        if include.is_empty() && exclude.is_empty() {
+    pub fn set_filters(
+        &mut self,
+        include_patterns: Vec<String>,
+        exclude_patterns: Vec<String>,
+    ) -> Result<(), globset::Error> {
+        let mut glob_builder = GlobSetBuilder::new();
+
+        for line in include_patterns.iter() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let glob = Glob::new(line)?;
+            glob_builder.add(glob);
+        }
+        let include_filters = glob_builder.build()?;
+
+        let mut glob_builder = GlobSetBuilder::new();
+        for line in exclude_patterns.iter() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let glob = Glob::new(line)?;
+            glob_builder.add(glob);
+        }
+        let exclude_filters = glob_builder.build()?;
+        self.include_filter_text = include_patterns;
+        self.exclude_filter_text = exclude_patterns;
+
+        if include_filters.is_empty() && exclude_filters.is_empty() {
             self.display_map.clear();
             self.filtered_tree = None;
             self.lhs_state.set_tree(self.tree.clone());
             self.rhs_state.set_tree(self.tree.clone());
         } else {
-            self.include_filters = include;
-            self.exclude_filters = exclude;
+            self.include_filters = include_filters;
+            self.exclude_filters = exclude_filters;
             self.display_map = self.build_display_map();
             let new_tree = Arc::new(self.tree.clone_filtered_tree(&self.display_map));
             self.lhs_state.set_tree(new_tree.clone());
             self.rhs_state.set_tree(new_tree.clone());
             self.filtered_tree = Some(new_tree);
         }
+        Ok(())
     }
 
     fn build_display_map(&self) -> HashSet<PathBuf> {
@@ -224,6 +254,8 @@ impl EventHandler for FolderCmpState {
                     Ok(tree) => match tree {
                         Ok(tree) => {
                             let tree = Arc::new(tree);
+                            error!("debug root node: {:?}", tree.get_fs_node(Path::new("")));
+                            error!("debug b node: {:?}", tree.get_fs_node(Path::new("b")));
                             self.lhs_state = FolderViewState::new(
                                 DiffSide::Left,
                                 tree.clone(),
@@ -236,6 +268,15 @@ impl EventHandler for FolderCmpState {
                             );
                             self.tree = tree;
                             self.display_map = self.build_display_map();
+                            if let Err(glob_err) = self.set_filters(
+                                self.include_filter_text.clone(),
+                                self.exclude_filter_text.clone(),
+                            ) {
+                                return Ok(Some(Action::Notification(Notification {
+                                    title: "Error".to_string(),
+                                    body: format!("Build glob failed: {glob_err}"),
+                                })));
+                            }
                         }
                         Err(e) => {
                             error!("Build tree failed: {e:?}");
@@ -294,64 +335,16 @@ impl EventHandler for FolderCmpState {
                     self.loading_tree = Some(tree_loading_handle);
                     self.expanded_pathes.clear();
                 }
-                let mut glob_builder = GlobSetBuilder::new();
 
-                for line in returned_config.include_patterns.iter() {
-                    let line = line.trim();
-                    if line.is_empty() {
-                        continue;
-                    }
-                    let glob = match Glob::new(line) {
-                        Ok(g) => g,
-                        Err(e) => {
-                            return Ok(Some(Action::Notification(Notification {
-                                title: "Error".to_string(),
-                                body: format!("Parsing glob failed: {e}"),
-                            })));
-                        }
-                    };
-                    glob_builder.add(glob);
+                if let Err(glob_err) = self.set_filters(
+                    returned_config.include_patterns,
+                    returned_config.exclude_patterns,
+                ) {
+                    return Ok(Some(Action::Notification(Notification {
+                        title: "Error".to_string(),
+                        body: format!("Build glob failed: {glob_err}"),
+                    })));
                 }
-                let include_filters = match glob_builder.build() {
-                    Ok(f) => f,
-                    Err(e) => {
-                        return Ok(Some(Action::Notification(Notification {
-                            title: "Error".to_string(),
-                            body: format!("Build glob set failed: {e}"),
-                        })));
-                    }
-                };
-
-                let mut glob_builder = GlobSetBuilder::new();
-                for line in returned_config.exclude_patterns.iter() {
-                    let line = line.trim();
-                    if line.is_empty() {
-                        continue;
-                    }
-                    let glob = match Glob::new(line) {
-                        Ok(g) => g,
-                        Err(e) => {
-                            return Ok(Some(Action::Notification(Notification {
-                                title: "Error".to_string(),
-                                body: format!("Parsing glob failed: {e}"),
-                            })));
-                        }
-                    };
-                    glob_builder.add(glob);
-                }
-                let exclude_filters = match glob_builder.build() {
-                    Ok(f) => f,
-                    Err(e) => {
-                        return Ok(Some(Action::Notification(Notification {
-                            title: "Error".to_string(),
-                            body: format!("Build glob set failed: {e}"),
-                        })));
-                    }
-                };
-                self.include_filter_text = returned_config.include_patterns;
-                self.exclude_filter_text = returned_config.exclude_patterns;
-
-                self.set_filters(include_filters, exclude_filters);
             }
             Action::PopupReturn(id, Some(body)) if id == "Open" => {
                 match body.as_str() {
@@ -452,6 +445,8 @@ impl EventHandler for FolderCmpState {
                         } else {
                             self.tree.clone()
                         };
+                        error!("debug2 root node: {:?}", tree.get_fs_node(Path::new("")));
+                        error!("debug2 b node: {:?}", tree.get_fs_node(Path::new("b")));
                         self.cmp_in_progress = Some(std::thread::spawn(move || {
                             tree.cmp_node(Path::new(""))?;
                             Ok::<(), DiffTuiError>(())
