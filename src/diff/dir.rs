@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -267,20 +267,27 @@ impl DirDiffTree {
         self.fs_tree().get(p)
     }
 
-    pub fn clone_filtered_tree(&self, filter: &HashSet<PathBuf>) -> Self {
+    pub fn clone_filtered_tree<F>(&self, filter: F) -> Self
+    where
+        F: Fn(&Path, &TreeNode) -> bool,
+    {
         let mut new_fs_tree = HashMap::new();
+        let root_path = PathBuf::from("");
 
-        for (k, v) in self.fs_tree.iter() {
-            if filter.contains(k) {
-                let mut entry = v.clone();
-                entry.children = entry
-                    .children
-                    .iter()
-                    .filter(|p| filter.contains(*p))
-                    .cloned()
-                    .collect();
-                new_fs_tree.insert(k.clone(), entry);
-            }
+        self.clone_filtered_tree_worker(&filter, &mut new_fs_tree, &root_path);
+
+        // Insert an empty root node if it's not included
+        if !new_fs_tree.contains_key(&root_path)
+            && let Some(root) = self.fs_tree().get(&root_path)
+        {
+            new_fs_tree.insert(
+                root_path,
+                TreeNode {
+                    metadata: root.metadata().clone(),
+                    children: vec![],
+                    children_non_dir: vec![],
+                },
+            );
         }
 
         Self {
@@ -289,6 +296,43 @@ impl DirDiffTree {
             lhs: self.lhs.clone(),
             rhs: self.rhs.clone(),
         }
+    }
+
+    fn clone_filtered_tree_worker<F>(
+        &self,
+        filter: &F,
+        new_tree: &mut HashMap<PathBuf, TreeNode>,
+        path: &PathBuf,
+    ) -> bool
+    where
+        F: Fn(&Path, &TreeNode) -> bool,
+    {
+        let mut should_include = false;
+        let mut node = match self.fs_tree.get(path) {
+            Some(n) => n.clone(),
+            None => {
+                return false;
+            }
+        };
+
+        let mut new_children = Vec::new();
+        for child in node.children.into_iter() {
+            if self.clone_filtered_tree_worker(filter, new_tree, &child) {
+                new_children.push(child);
+                should_include = true;
+            }
+        }
+        node.children = new_children;
+
+        if filter(path, &node) {
+            should_include = true;
+        }
+
+        if should_include {
+            new_tree.insert(path.clone(), node);
+        }
+
+        should_include
     }
 }
 

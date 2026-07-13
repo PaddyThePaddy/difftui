@@ -22,7 +22,10 @@ use tracing::{error, trace};
 
 use crate::{
     DiffTuiConfig, DiffTuiError,
-    diff::{DiffSide, DiffState, dir::DirDiffTree},
+    diff::{
+        DiffSide, DiffState,
+        dir::{DirDiffTree, TreeNode},
+    },
     ui::{
         Action, EventHandler, GotoMenu, JumpToPopup, Notification, Popup, TabState,
         folder_view::{FolderView, FolderViewState},
@@ -57,7 +60,6 @@ pub struct FolderCmpState {
     include_filters: GlobSet,
     exclude_filter_text: Vec<String>,
     exclude_filters: GlobSet,
-    display_map: HashSet<PathBuf>,
     filtered_tree: Option<Arc<DirDiffTree>>,
     page_height: Option<u16>,
     highlight: Option<Regex>,
@@ -119,7 +121,6 @@ impl FolderCmpState {
             include_filters: default_include.build()?,
             exclude_filter_text: exclude_patterns,
             exclude_filters: default_exclude.build()?,
-            display_map: HashSet::new(),
             filtered_tree: None,
             page_height: None,
             highlight: None,
@@ -158,15 +159,13 @@ impl FolderCmpState {
         self.exclude_filter_text = exclude_patterns;
 
         if include_filters.is_empty() && exclude_filters.is_empty() {
-            self.display_map.clear();
             self.filtered_tree = None;
             self.lhs_state.set_tree(self.tree.clone());
             self.rhs_state.set_tree(self.tree.clone());
         } else {
             self.include_filters = include_filters;
             self.exclude_filters = exclude_filters;
-            self.display_map = self.build_display_map();
-            let new_tree = Arc::new(self.tree.clone_filtered_tree(&self.display_map));
+            let new_tree = Arc::new(self.tree.clone_filtered_tree(self.build_filter()));
             self.lhs_state.set_tree(new_tree.clone());
             self.rhs_state.set_tree(new_tree.clone());
             self.filtered_tree = Some(new_tree);
@@ -174,55 +173,11 @@ impl FolderCmpState {
         Ok(())
     }
 
-    fn build_display_map(&self) -> HashSet<PathBuf> {
-        let mut map = HashSet::new();
-        map.insert(PathBuf::from(""));
-        Self::build_display_map_worker(
-            &self.tree,
-            &self.include_filters,
-            &self.exclude_filters,
-            Path::new(""),
-            &mut map,
-        );
-        map
-    }
+    fn build_filter(&self) -> impl Fn(&Path, &TreeNode) -> bool {
+        let include = self.include_filters.clone();
+        let exclude = self.exclude_filters.clone();
 
-    fn build_display_map_worker(
-        tree: &DirDiffTree,
-        include_filteres: &GlobSet,
-        exclude_filters: &GlobSet,
-        p: &Path,
-        map: &mut HashSet<PathBuf>,
-    ) -> bool {
-        let node = match tree.get_fs_node(p) {
-            Some(n) => n,
-            None => return false,
-        };
-        let mut should_display = false;
-
-        if node.metadata().is_dir() {
-            for child in node.children() {
-                if Self::build_display_map_worker(
-                    tree,
-                    include_filteres,
-                    exclude_filters,
-                    child,
-                    map,
-                ) {
-                    should_display = true;
-                }
-            }
-        }
-
-        if include_filteres.is_match(p) && !exclude_filters.is_match(p) {
-            should_display = true;
-        }
-
-        if should_display {
-            map.insert(p.to_path_buf());
-        }
-
-        should_display
+        move |p: &Path, _| -> bool { include.is_match(p) && !exclude.is_match(p) }
     }
 }
 
@@ -267,7 +222,6 @@ impl EventHandler for FolderCmpState {
                                 ListState::default().with_selected(Some(0)),
                             );
                             self.tree = tree;
-                            self.display_map = self.build_display_map();
                             if let Err(glob_err) = self.set_filters(
                                 self.include_filter_text.clone(),
                                 self.exclude_filter_text.clone(),
