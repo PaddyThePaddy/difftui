@@ -337,7 +337,7 @@ impl TextCmpView {
         self.selected = self
             .selected
             .saturating_add(lines)
-            .min(self.lhs_lines.len().saturating_sub(1));
+            .min(self.lhs_line_map.len().saturating_sub(1));
         self.fit_window();
     }
     pub fn move_sel_up(&mut self, lines: usize) {
