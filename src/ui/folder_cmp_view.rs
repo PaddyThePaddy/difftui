@@ -209,8 +209,6 @@ impl EventHandler for FolderCmpState {
                     Ok(tree) => match tree {
                         Ok(tree) => {
                             let tree = Arc::new(tree);
-                            error!("debug root node: {:?}", tree.get_fs_node(Path::new("")));
-                            error!("debug b node: {:?}", tree.get_fs_node(Path::new("b")));
                             self.lhs_state = FolderViewState::new(
                                 DiffSide::Left,
                                 tree.clone(),
@@ -399,8 +397,6 @@ impl EventHandler for FolderCmpState {
                         } else {
                             self.tree.clone()
                         };
-                        error!("debug2 root node: {:?}", tree.get_fs_node(Path::new("")));
-                        error!("debug2 b node: {:?}", tree.get_fs_node(Path::new("b")));
                         self.cmp_in_progress = Some(std::thread::spawn(move || {
                             tree.cmp_node(Path::new(""))?;
                             Ok::<(), DiffTuiError>(())
