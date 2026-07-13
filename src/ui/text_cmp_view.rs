@@ -1,6 +1,7 @@
 use std::{
     fmt::Debug,
     path::{Path, PathBuf},
+    thread::JoinHandle,
 };
 
 use ratatui::{
@@ -19,7 +20,10 @@ use crate::{
     diff::DiffSide,
     ui::{
         Action, EventHandler, GotoMenu, JumpToPopup, Notification, TabState,
-        folder_cmp_view::FolderCmpState, hex_cmp_view::HexCmpView, menu::Menu,
+        folder_cmp_view::FolderCmpState,
+        hex_cmp_view::HexCmpView,
+        loading_msg::{LoadingMsg, LoadingMsgState},
+        menu::Menu,
     },
 };
 
@@ -136,6 +140,9 @@ fn find_diff_op(ops: &[DiffOp], index: usize, side: DiffSide) -> Result<DiffOp, 
     .map_err(|_| DiffTuiError::NodeNotFound)
 }
 
+type DiffHunk = (usize, usize);
+type LineMap = Vec<Option<usize>>;
+
 pub struct TextCmpView {
     lhs_path: PathBuf,
     rhs_path: PathBuf,
@@ -150,10 +157,12 @@ pub struct TextCmpView {
     diffs: Vec<DiffOp>,
     view_start: usize,
     scroll_padding: usize,
-    diff_hunks: Vec<(usize, usize)>,
-    lhs_line_map: Vec<Option<usize>>,
-    rhs_line_map: Vec<Option<usize>>,
+    diff_hunks: Vec<DiffHunk>,
+    lhs_line_map: LineMap,
+    rhs_line_map: LineMap,
     config: DiffTuiConfig,
+    cmp_inprogress_handle: Option<JoinHandle<Vec<DiffOp>>>,
+    loading_msg_state: LoadingMsgState,
 }
 
 impl Debug for TextCmpView {
@@ -183,116 +192,11 @@ impl TextCmpView {
     ) -> Result<Self, DiffTuiError> {
         let lhs_content = lhs.clone();
         let rhs_content = rhs.clone();
-        let diff = TextDiff::from_lines(lhs, rhs);
 
-        let ops = diff.ops().to_vec();
-
-        let mut line_count = 0;
-        let diff_hunks = ops
-            .iter()
-            .filter_map(|op| match op {
-                DiffOp::Delete {
-                    old_index: _,
-                    old_len,
-                    new_index: _,
-                } => {
-                    let start = line_count;
-                    line_count += old_len;
-                    Some((start, line_count))
-                }
-                DiffOp::Equal {
-                    old_index: _,
-                    new_index: _,
-                    len,
-                } => {
-                    line_count += len;
-                    None
-                }
-                DiffOp::Insert {
-                    old_index: _,
-                    new_index: _,
-                    new_len,
-                } => {
-                    let start = line_count;
-                    line_count += new_len;
-                    Some((start, line_count))
-                }
-                DiffOp::Replace {
-                    old_index: _,
-                    old_len,
-                    new_index: _,
-                    new_len,
-                } => {
-                    let start = line_count;
-                    line_count += old_len.max(new_len);
-                    Some((start, line_count))
-                }
-            })
-            .collect();
-
-        let mut lhs_line_map = Vec::new();
-        let mut rhs_line_map = Vec::new();
-
-        for op in ops.iter() {
-            match *op {
-                DiffOp::Equal {
-                    old_index,
-                    new_index,
-                    len,
-                } => {
-                    for line in old_index..(old_index + len) {
-                        lhs_line_map.push(Some(line));
-                    }
-                    for line in new_index..(new_index + len) {
-                        rhs_line_map.push(Some(line));
-                    }
-                }
-                DiffOp::Delete {
-                    old_index,
-                    old_len,
-                    new_index,
-                } => {
-                    for line in old_index..(old_index + old_len) {
-                        lhs_line_map.push(Some(line));
-                    }
-                    for _ in new_index..(new_index + old_len) {
-                        rhs_line_map.push(None);
-                    }
-                }
-                DiffOp::Insert {
-                    old_index,
-                    new_index,
-                    new_len,
-                } => {
-                    for _ in old_index..(old_index + new_len) {
-                        lhs_line_map.push(None);
-                    }
-                    for line in new_index..(new_index + new_len) {
-                        rhs_line_map.push(Some(line));
-                    }
-                }
-                DiffOp::Replace {
-                    old_index,
-                    old_len,
-                    new_index,
-                    new_len,
-                } => {
-                    let max_len = old_len.max(new_len);
-                    for line in old_index..(old_index + old_len) {
-                        lhs_line_map.push(Some(line));
-                    }
-                    for _ in old_len..max_len {
-                        lhs_line_map.push(None);
-                    }
-                    for line in new_index..(new_index + new_len) {
-                        rhs_line_map.push(Some(line));
-                    }
-                    for _ in new_len..max_len {
-                        rhs_line_map.push(None);
-                    }
-                }
-            }
-        }
+        let cmp_inprogress = std::thread::spawn(|| {
+            let diff = TextDiff::from_lines(lhs, rhs);
+            diff.ops().to_vec()
+        });
 
         Ok(Self {
             title: Self::build_title(lhs_path.as_path(), rhs_path.as_path())
@@ -304,15 +208,17 @@ impl TextCmpView {
             page_height: None,
             highlight: None,
             line_number: true,
-            diffs: ops,
+            diffs: vec![],
             lhs_lines: lhs_content.lines().map(|s| s.to_string()).collect(),
             rhs_lines: rhs_content.lines().map(|s| s.to_string()).collect(),
             view_start: 0,
             scroll_padding: 5,
-            diff_hunks,
-            lhs_line_map,
-            rhs_line_map,
             config: config.clone(),
+            cmp_inprogress_handle: Some(cmp_inprogress),
+            diff_hunks: vec![],
+            lhs_line_map: LineMap::default(),
+            rhs_line_map: LineMap::default(),
+            loading_msg_state: LoadingMsgState::default(),
         })
     }
 
@@ -381,8 +287,152 @@ impl TextCmpView {
     }
 }
 
+fn build_diff_structures(ops: &[DiffOp]) -> (Vec<DiffHunk>, LineMap, LineMap) {
+    let mut line_count = 0;
+    let diff_hunks = ops
+        .iter()
+        .filter_map(|op| match op {
+            DiffOp::Delete {
+                old_index: _,
+                old_len,
+                new_index: _,
+            } => {
+                let start = line_count;
+                line_count += old_len;
+                Some((start, line_count))
+            }
+            DiffOp::Equal {
+                old_index: _,
+                new_index: _,
+                len,
+            } => {
+                line_count += len;
+                None
+            }
+            DiffOp::Insert {
+                old_index: _,
+                new_index: _,
+                new_len,
+            } => {
+                let start = line_count;
+                line_count += new_len;
+                Some((start, line_count))
+            }
+            DiffOp::Replace {
+                old_index: _,
+                old_len,
+                new_index: _,
+                new_len,
+            } => {
+                let start = line_count;
+                line_count += old_len.max(new_len);
+                Some((start, line_count))
+            }
+        })
+        .collect();
+
+    let mut lhs_line_map = Vec::new();
+    let mut rhs_line_map = Vec::new();
+
+    for op in ops.iter() {
+        match *op {
+            DiffOp::Equal {
+                old_index,
+                new_index,
+                len,
+            } => {
+                for line in old_index..(old_index + len) {
+                    lhs_line_map.push(Some(line));
+                }
+                for line in new_index..(new_index + len) {
+                    rhs_line_map.push(Some(line));
+                }
+            }
+            DiffOp::Delete {
+                old_index,
+                old_len,
+                new_index,
+            } => {
+                for line in old_index..(old_index + old_len) {
+                    lhs_line_map.push(Some(line));
+                }
+                for _ in new_index..(new_index + old_len) {
+                    rhs_line_map.push(None);
+                }
+            }
+            DiffOp::Insert {
+                old_index,
+                new_index,
+                new_len,
+            } => {
+                for _ in old_index..(old_index + new_len) {
+                    lhs_line_map.push(None);
+                }
+                for line in new_index..(new_index + new_len) {
+                    rhs_line_map.push(Some(line));
+                }
+            }
+            DiffOp::Replace {
+                old_index,
+                old_len,
+                new_index,
+                new_len,
+            } => {
+                let max_len = old_len.max(new_len);
+                for line in old_index..(old_index + old_len) {
+                    lhs_line_map.push(Some(line));
+                }
+                for _ in old_len..max_len {
+                    lhs_line_map.push(None);
+                }
+                for line in new_index..(new_index + new_len) {
+                    rhs_line_map.push(Some(line));
+                }
+                for _ in new_len..max_len {
+                    rhs_line_map.push(None);
+                }
+            }
+        }
+    }
+
+    (diff_hunks, lhs_line_map, rhs_line_map)
+}
+
 impl EventHandler for TextCmpView {
     fn handler(&mut self, event: &super::Action) -> Result<Option<super::Action>, DiffTuiError> {
+        if let Action::Tick = *event {
+            self.loading_msg_state.step();
+
+            if self
+                .cmp_inprogress_handle
+                .as_ref()
+                .is_some_and(|h| h.is_finished())
+                && let Some(handle) = self.cmp_inprogress_handle.take()
+            {
+                let ops = match handle.join() {
+                    Ok(ops) => ops,
+                    Err(e) => {
+                        error!("Comparing thread panic: {e:?}");
+                        return Ok(Some(Action::Notification(Notification {
+                            title: "Alert".to_string(),
+                            body: format!("Comparing thread panic: {e:?}"),
+                        })));
+                    }
+                };
+
+                let (diff_hunks, lhs_line_map, rhs_line_map) = build_diff_structures(&ops);
+
+                self.diffs = ops;
+                self.diff_hunks = diff_hunks;
+                self.lhs_line_map = lhs_line_map;
+                self.rhs_line_map = rhs_line_map;
+            }
+        }
+
+        if self.cmp_inprogress_handle.is_some() {
+            return Ok(None);
+        }
+
         match event {
             Action::NavDown => self.move_sel_down(1),
             Action::NavUp => self.move_sel_up(1),
@@ -626,6 +676,15 @@ impl TabState for TextCmpView {
     }
 
     fn render(&mut self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer) {
+        if self.cmp_inprogress_handle.is_some() {
+            let center_area = area.centered_vertically(Constraint::Length(1));
+            LoadingMsg::new("Comparing files").render(
+                center_area,
+                buf,
+                &mut self.loading_msg_state,
+            );
+            return;
+        }
         let layout = Layout::new(
             Direction::Horizontal,
             [Constraint::Fill(1), Constraint::Fill(1)],
