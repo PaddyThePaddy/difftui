@@ -1232,7 +1232,6 @@ mod tests {
     fn new_starts_loading_tree_in_background() {
         let state = fixture_state();
         assert!(state.loading_tree.is_some());
-        t
     }
 
     #[test]
