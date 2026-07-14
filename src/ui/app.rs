@@ -5,14 +5,18 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::Style,
     text::Span,
-    widgets::{Block, BorderType, Clear, Paragraph, Tabs, Widget as _},
+    widgets::{Block, BorderType, Clear, Paragraph, StatefulWidget, Widget as _},
 };
 use regex::bytes::{Regex, RegexBuilder};
 use tracing::{error, trace};
 
 use crate::{
     DiffTuiError,
-    ui::{Action, Notification, Popup, TabState, TuiTerminal, run_ext_tui_app, tui},
+    ui::{
+        Action, Notification, Popup, TabState, TuiTerminal, run_ext_tui_app,
+        tabline::{Tabline, TablineState},
+        tui,
+    },
 };
 
 #[derive(Debug, Default)]
@@ -50,6 +54,7 @@ pub struct App {
     should_quit: bool,
     tabs: Vec<Box<dyn TabState>>,
     current_tab: usize,
+    tabline_state: TablineState,
     popup: Option<Box<dyn Popup>>,
     showing_notify: Option<Notification>,
     search_state: SearchState,
@@ -62,6 +67,7 @@ impl App {
             should_quit: false,
             tabs: vec![tab],
             current_tab: 0,
+            tabline_state: TablineState::default(),
             popup: None,
             showing_notify: None,
             search_state: SearchState::None,
@@ -82,9 +88,12 @@ impl App {
         );
         let [tabline, content, statusline] = frame.area().layout(&layout);
         if has_tabline {
-            Tabs::new(self.tabs.iter().map(|t| t.title()))
-                .select(self.current_tab)
-                .render(tabline, frame.buffer_mut());
+            StatefulWidget::render(
+                Tabline::new(self.tabs.iter().map(|t| t.title())).select(self.current_tab),
+                tabline,
+                frame.buffer_mut(),
+                &mut self.tabline_state,
+            );
         }
         if let Some(tab) = self.tabs.get_mut(self.current_tab) {
             tab.render(content, frame.buffer_mut());

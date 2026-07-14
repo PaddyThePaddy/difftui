@@ -5,6 +5,7 @@ pub mod hex_cmp_view;
 pub mod hex_view;
 pub mod loading_msg;
 pub mod menu;
+pub mod tabline;
 pub mod text_cmp_view;
 pub mod tui;
 
