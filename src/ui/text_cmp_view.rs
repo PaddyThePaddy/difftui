@@ -1,6 +1,7 @@
 use std::{
     fmt::Debug,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
     thread::JoinHandle,
 };
 
@@ -12,7 +13,10 @@ use ratatui::{
     widgets::{Block, Borders, List, ListState, StatefulWidget},
 };
 use regex::bytes::Regex;
-use similar::{DiffOp, DiffTag, TextDiff};
+use similar::{
+    DiffOp, DiffTag,
+    algorithms::{Capture, Compact, DiffHook, Replace, diff_slices},
+};
 use tracing::error;
 
 use crate::{
@@ -163,6 +167,7 @@ pub struct TextCmpView {
     config: DiffTuiConfig,
     cmp_inprogress_handle: Option<JoinHandle<Vec<DiffOp>>>,
     loading_msg_state: LoadingMsgState,
+    progress: Arc<Mutex<ComparisonProgress>>,
 }
 
 impl Debug for TextCmpView {
@@ -190,12 +195,26 @@ impl TextCmpView {
         rhs_path: PathBuf,
         config: &DiffTuiConfig,
     ) -> Result<Self, DiffTuiError> {
-        let lhs_content = lhs.clone();
-        let rhs_content = rhs.clone();
+        let lhs_lines: Vec<String> = lhs.clone().lines().map(|s| s.to_string()).collect();
+        let rhs_lines: Vec<String> = rhs.clone().lines().map(|s| s.to_string()).collect();
+        let progress = ComparisonProgress::new(lhs_lines.len(), rhs_lines.len());
+        let progress = Arc::new(Mutex::new(progress));
+        let progress_in_worker = progress.clone();
 
-        let cmp_inprogress = std::thread::spawn(|| {
-            let diff = TextDiff::from_lines(lhs, rhs);
-            diff.ops().to_vec()
+        let cmp_inprogress = std::thread::spawn(move || {
+            let lhs_lines: Vec<&str> = lhs.lines().collect();
+            let rhs_lines: Vec<&str> = rhs.lines().collect();
+
+            let mut hook = DiffProgress::new(
+                progress_in_worker,
+                Compact::new(Replace::new(Capture::new()), &lhs_lines, &rhs_lines),
+            );
+            if let Err(e) =
+                diff_slices(similar::Algorithm::Myers, &mut hook, &lhs_lines, &rhs_lines)
+            {
+                error!("Compare file failed {e}");
+            }
+            hook.into_inner().into_inner().into_inner().into_ops()
         });
 
         Ok(Self {
@@ -209,8 +228,8 @@ impl TextCmpView {
             highlight: None,
             line_number: true,
             diffs: vec![],
-            lhs_lines: lhs_content.lines().map(|s| s.to_string()).collect(),
-            rhs_lines: rhs_content.lines().map(|s| s.to_string()).collect(),
+            lhs_lines,
+            rhs_lines,
             view_start: 0,
             scroll_padding: 5,
             config: config.clone(),
@@ -219,6 +238,7 @@ impl TextCmpView {
             lhs_line_map: LineMap::default(),
             rhs_line_map: LineMap::default(),
             loading_msg_state: LoadingMsgState::default(),
+            progress,
         })
     }
 
@@ -678,7 +698,11 @@ impl TabState for TextCmpView {
     fn render(&mut self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer) {
         if self.cmp_inprogress_handle.is_some() {
             let center_area = area.centered_vertically(Constraint::Length(1));
-            LoadingMsg::new("Comparing files").render(
+            let progress = self.progress.lock().expect("Locking comparisong progress");
+            let comparison_percent = ((progress.old_current * 100 / progress.old_len)
+                + (progress.new_current * 100 / progress.new_len))
+                / 2;
+            LoadingMsg::new(format!("Comparing files {}%", comparison_percent)).render(
                 center_area,
                 buf,
                 &mut self.loading_msg_state,
@@ -815,5 +839,101 @@ impl TabState for TextCmpView {
             self.rhs_path.clone(),
             &self.config,
         )?)))
+    }
+}
+
+#[derive(Debug, Default)]
+struct ComparisonProgress {
+    old_current: usize,
+    old_len: usize,
+    new_current: usize,
+    new_len: usize,
+    finished: bool,
+}
+
+impl ComparisonProgress {
+    fn new(old_len: usize, new_len: usize) -> Self {
+        Self {
+            old_len,
+            new_len,
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(Debug)]
+struct DiffProgress<D: DiffHook> {
+    hook: D,
+    progress: Arc<Mutex<ComparisonProgress>>,
+}
+
+impl<D: DiffHook> DiffProgress<D> {
+    pub fn new(progress: Arc<Mutex<ComparisonProgress>>, hook: D) -> Self {
+        Self { hook, progress }
+    }
+
+    pub fn into_inner(self) -> D {
+        self.hook
+    }
+}
+
+impl<D: DiffHook> DiffHook for DiffProgress<D> {
+    type Error = D::Error;
+
+    fn equal(&mut self, old_index: usize, new_index: usize, len: usize) -> Result<(), Self::Error> {
+        self.hook.equal(old_index, new_index, len)?;
+        let mut progresss = self.progress.lock().expect("Locking comparisong progress");
+        progresss.old_current = old_index + len;
+        progresss.new_current = new_index + len;
+        Ok(())
+    }
+
+    fn delete(
+        &mut self,
+        old_index: usize,
+        old_len: usize,
+        new_index: usize,
+    ) -> Result<(), Self::Error> {
+        self.hook.delete(old_index, old_len, new_index)?;
+        let mut progresss = self.progress.lock().expect("Locking comparisong progress");
+        progresss.old_current = old_index + old_len;
+        progresss.new_current = new_index;
+        Ok(())
+    }
+
+    fn insert(
+        &mut self,
+        old_index: usize,
+        new_index: usize,
+        new_len: usize,
+    ) -> Result<(), Self::Error> {
+        self.hook.insert(old_index, new_index, new_len)?;
+        let mut progresss = self.progress.lock().expect("Locking comparisong progress");
+        progresss.old_current = old_index;
+        progresss.new_current = new_index + new_len;
+        Ok(())
+    }
+
+    fn replace(
+        &mut self,
+        old_index: usize,
+        old_len: usize,
+        new_index: usize,
+        new_len: usize,
+    ) -> Result<(), Self::Error> {
+        self.hook.replace(old_index, old_len, new_index, new_len)?;
+        let mut progresss = self.progress.lock().expect("Locking comparisong progress");
+        progresss.old_current = old_index + old_len;
+        progresss.new_current = new_index + new_len;
+        Ok(())
+    }
+
+    fn finish(&mut self) -> Result<(), Self::Error> {
+        self.hook.finish()?;
+        let mut progress = self.progress.lock().expect("Locking comparisong progress");
+        progress.old_current = progress.old_len;
+        progress.new_current = progress.new_len;
+        progress.finished = true;
+        Ok(())
     }
 }
