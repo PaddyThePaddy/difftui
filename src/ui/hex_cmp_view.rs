@@ -369,7 +369,11 @@ impl TabState for HexCmpView {
         StatefulWidget::render(
             HexView::new(&self.lhs_buf)
                 .set_hl_groups(self.lhs_cached_hl.as_deref())
-                .block(Block::bordered().merge_borders(MergeStrategy::Exact)),
+                .block(
+                    Block::bordered()
+                        .merge_borders(MergeStrategy::Exact)
+                        .title(self.lhs_path.to_string_lossy()),
+                ),
             lhs_area,
             buf,
             &mut self.lhs_state,
@@ -377,7 +381,11 @@ impl TabState for HexCmpView {
         StatefulWidget::render(
             HexView::new(&self.rhs_buf)
                 .set_hl_groups(self.rhs_cached_hl.as_deref())
-                .block(Block::bordered().merge_borders(MergeStrategy::Exact)),
+                .block(
+                    Block::bordered()
+                        .merge_borders(MergeStrategy::Exact)
+                        .title(self.rhs_path.to_string_lossy()),
+                ),
             rhs_area,
             buf,
             &mut self.rhs_state,
