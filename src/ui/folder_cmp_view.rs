@@ -464,7 +464,11 @@ impl EventHandler for FolderCmpState {
                     let lhs_path = self.lhs_path.join(lhs);
                     let rhs_path = self.rhs_path.join(rhs);
                     let config = self.config.clone();
-                    if lhs_path.is_dir() && rhs_path.is_dir() {
+                    if lhs_path.exists()
+                        && lhs_path.is_dir()
+                        && rhs_path.exists()
+                        && rhs_path.is_dir()
+                    {
                         return Ok(Some(Action::CreateTabAndSwitch(Box::new(
                             FolderCmpState::new(
                                 lhs_path,
@@ -474,10 +478,20 @@ impl EventHandler for FolderCmpState {
                                 Some(self.exclude_filter_text.clone()),
                             )?,
                         ))));
-                    } else {
+                    } else if lhs_path.exists()
+                        && lhs_path.is_file()
+                        && rhs_path.exists()
+                        && rhs_path.is_file()
+                    {
                         return Ok(Some(Action::CreateTabAndSwitch(Box::new(
                             TextCmpView::new(lhs_path, rhs_path, &self.config)?,
                         ))));
+                    } else {
+                        return Ok(Some(Action::Notification(Notification {
+                            title: "Incompatible file type".to_string(),
+                            body: "Both file must both be folder or file in order to compare"
+                                .to_string(),
+                        })));
                     }
                 }
                 return Ok(None);
